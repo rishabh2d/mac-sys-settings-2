@@ -2,6 +2,8 @@
 
 Read this before changing Mac Sys Settings 2.
 
+If you are helping a new friend download or join the project, read `FRIEND_ONBOARDING.md` before you speak to them. Use its greeting and keep the first explanation short, warm, and non-technical.
+
 ## Project
 
 - Xcode project: `Mac Sys Settings 2.xcodeproj`
@@ -88,4 +90,3 @@ When a non-coder asks for a setting, translate the request into:
 - test plan
 
 Then implement only what can be made real.
-
