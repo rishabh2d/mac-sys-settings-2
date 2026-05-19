@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		184928792F84E8AC00CBEA70 /* MICNMUSIC.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MICNMUSIC.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		184928792F84E8AC00CBEA70 /* Mac Sys Settings 2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Mac Sys Settings 2.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1849287B2F84E8AC00CBEA70 /* MICNMUSIC */ = {
+		1849287B2F84E8AC00CBEA70 /* MacSysSettings2 */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = MICNMUSIC;
+			path = MacSysSettings2;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +32,7 @@
 		184928702F84E8AC00CBEA70 = {
 			isa = PBXGroup;
 			children = (
-				1849287B2F84E8AC00CBEA70 /* MICNMUSIC */,
+				1849287B2F84E8AC00CBEA70 /* MacSysSettings2 */,
 				1849287A2F84E8AC00CBEA70 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,7 +40,7 @@
 		1849287A2F84E8AC00CBEA70 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				184928792F84E8AC00CBEA70 /* MICNMUSIC.app */,
+				184928792F84E8AC00CBEA70 /* Mac Sys Settings 2.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		184928782F84E8AC00CBEA70 /* MICNMUSIC */ = {
+		184928782F84E8AC00CBEA70 /* MacSysSettings2 */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 184928842F84E8AE00CBEA70 /* Build configuration list for PBXNativeTarget "MICNMUSIC" */;
+			buildConfigurationList = 184928842F84E8AE00CBEA70 /* Build configuration list for PBXNativeTarget "MacSysSettings2" */;
 			buildPhases = (
 				184928752F84E8AC00CBEA70 /* Sources */,
 				184928762F84E8AC00CBEA70 /* Frameworks */,
@@ -61,13 +61,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				1849287B2F84E8AC00CBEA70 /* MICNMUSIC */,
+				1849287B2F84E8AC00CBEA70 /* MacSysSettings2 */,
 			);
-			name = MICNMUSIC;
+			name = "Mac Sys Settings 2";
 			packageProductDependencies = (
 			);
-			productName = MICNMUSIC;
-			productReference = 184928792F84E8AC00CBEA70 /* MICNMUSIC.app */;
+			productName = "Mac Sys Settings 2";
+			productReference = 184928792F84E8AC00CBEA70 /* Mac Sys Settings 2.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +85,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 184928742F84E8AC00CBEA70 /* Build configuration list for PBXProject "MICNMUSIC" */;
+			buildConfigurationList = 184928742F84E8AC00CBEA70 /* Build configuration list for PBXProject "MacSysSettings2" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -99,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				184928782F84E8AC00CBEA70 /* MICNMUSIC */,
+				184928782F84E8AC00CBEA70 /* MacSysSettings2 */,
 			);
 		};
 /* End PBXProject section */
@@ -251,17 +251,18 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacSysSettings2 needs to control supported media apps so mute can pause and resume playback.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rishabh.MICNMUSIC;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rishabh.MacSysSettings2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -281,17 +282,18 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSAppleEventsUsageDescription = "MacSysSettings2 needs to control supported media apps so mute can pause and resume playback.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.rishabh.MICNMUSIC;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rishabh.MacSysSettings2;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -306,7 +308,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		184928742F84E8AC00CBEA70 /* Build configuration list for PBXProject "MICNMUSIC" */ = {
+		184928742F84E8AC00CBEA70 /* Build configuration list for PBXProject "MacSysSettings2" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				184928822F84E8AE00CBEA70 /* Debug */,
@@ -315,7 +317,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		184928842F84E8AE00CBEA70 /* Build configuration list for PBXNativeTarget "MICNMUSIC" */ = {
+		184928842F84E8AE00CBEA70 /* Build configuration list for PBXNativeTarget "MacSysSettings2" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				184928852F84E8AE00CBEA70 /* Debug */,
