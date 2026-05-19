@@ -2,6 +2,16 @@
 
 Mac Sys Settings 2 should grow through small, real macOS settings that people actually want.
 
+## Ideas Before Code
+
+People do not need to build a feature to contribute.
+
+- Use a GitHub Issue with the "Setting idea" template for a concrete setting request.
+- Use GitHub Discussions for loose brainstorming, questions, wishlists, and early ideas.
+- Use an "Agent contribution plan" issue when Codex, Claude Code, or another agent wants feedback before coding.
+
+The owner/admin reviews ideas, security impact, permissions, and behavior before anything becomes part of the public app.
+
 ## Contribution Flow
 
 No one should auto-push changes into the owner repo.
@@ -55,4 +65,3 @@ Avoid:
 - The setting performs the promised action.
 - The PR description includes user-facing and developer-facing summaries.
 - Any window movement testing restores the user's windows afterward.
-

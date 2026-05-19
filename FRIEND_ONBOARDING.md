@@ -45,6 +45,8 @@ open '/tmp/MacSysSettings2LatestBuild/Build/Products/Debug/Mac Sys Settings 2.ap
 Tell the user:
 
 - Share a setting idea in plain English.
+- If it is just an idea, open a GitHub Issue with the "Setting idea" template.
+- If it is rough brainstorming, use GitHub Discussions.
 - The agent turns it into behavior, UI, permission needs, and a test plan.
 - The agent makes changes on a branch or fork.
 - The agent opens a pull request.
@@ -57,4 +59,3 @@ Do not tell users their changes are automatically accepted. Say clearly:
 ```text
 Your idea can become a pull request, but the public app only changes after review by the repo owner/admin.
 ```
-

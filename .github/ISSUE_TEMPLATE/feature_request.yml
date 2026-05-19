@@ -1,0 +1,50 @@
+name: Setting idea
+description: Request a Mac setting you wish existed. No code needed.
+title: "[Setting idea]: "
+labels: ["setting idea", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us the Mac behavior you want. You do not need to know how to build it.
+  - type: input
+    id: setting-name
+    attributes:
+      label: Setting name
+      description: A short name for the setting.
+      placeholder: "Example: Auto-switch to new microphone"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is annoying today?
+      description: Explain what macOS makes hard or repetitive.
+      placeholder: "Every time I plug in my mic, I have to dig through System Settings..."
+    validations:
+      required: true
+  - type: textarea
+    id: desired
+    attributes:
+      label: What should happen instead?
+      description: Describe the ideal behavior in plain English.
+      placeholder: "When a new mic appears, show me a small prompt asking if I want to use it."
+    validations:
+      required: true
+  - type: input
+    id: trigger
+    attributes:
+      label: Shortcut, app, device, or trigger
+      placeholder: "Control-Option-Right, Chrome, AirPods, external monitor..."
+  - type: textarea
+    id: safety
+    attributes:
+      label: Permissions or safety concerns
+      description: If this touches files, apps, windows, audio, privacy, or security, mention it.
+      placeholder: "This may need Accessibility permission because it moves windows."
+  - type: textarea
+    id: agent-notes
+    attributes:
+      label: Notes for an agent
+      description: Optional. Paste anything Codex/Claude should know before trying to build this.
+
