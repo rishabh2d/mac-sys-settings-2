@@ -1,0 +1,29 @@
+name: Agent contribution plan
+description: Use this when Codex, Claude Code, or another agent wants to propose a build plan before coding.
+title: "[Agent plan]: "
+labels: ["agent plan", "needs triage"]
+body:
+  - type: textarea
+    id: user-summary
+    attributes:
+      label: User summary
+      description: What will a normal user get?
+      placeholder: "Adds a setting that..."
+    validations:
+      required: true
+  - type: textarea
+    id: developer-summary
+    attributes:
+      label: Developer summary
+      description: Files, APIs, permissions, and likely risk.
+      placeholder: "Likely files: ContentView.swift, NewSettingStore.swift. Needs Accessibility permission..."
+    validations:
+      required: true
+  - type: textarea
+    id: test-plan
+    attributes:
+      label: Test plan
+      placeholder: "Build app, open page, toggle setting, verify..."
+    validations:
+      required: true
+

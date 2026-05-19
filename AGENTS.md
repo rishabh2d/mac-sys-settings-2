@@ -53,6 +53,8 @@ xcodebuild -project 'Mac Sys Settings 2.xcodeproj' \
 
 Never push directly to `main`.
 
+If the user only has an idea, do not build immediately unless they ask. Help them open a "Setting idea" issue, or use Discussions for loose brainstorming.
+
 Use this flow:
 
 1. Sync or fork the repo.

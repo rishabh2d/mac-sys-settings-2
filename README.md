@@ -13,7 +13,9 @@ The idea is simple: real settings only. Each setting should either change a real
 
 ## For Non-Coders
 
-You can request a new setting by opening a GitHub Issue.
+You can request a new setting by opening a GitHub Issue with the "Setting idea" template. No code is needed.
+
+Use GitHub Discussions for rough brainstorming, wishlists, and "wouldn't it be cool if..." ideas. Use Issues when the idea is clear enough to track as a possible setting.
 
 Good request format:
 

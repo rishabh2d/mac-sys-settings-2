@@ -1,0 +1,33 @@
+name: Bug report
+description: Report something that is broken or confusing.
+title: "[Bug]: "
+labels: ["bug", "needs triage"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      placeholder: "The window moved to the other monitor but did not touch the top edge."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: "It should preserve full-height/top-edge alignment on the destination monitor."
+    validations:
+      required: true
+  - type: input
+    id: mac-version
+    attributes:
+      label: macOS version
+      placeholder: "macOS 15.x / 26.x"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Chrome
+        2. Press ...
+        3. See ...
+
