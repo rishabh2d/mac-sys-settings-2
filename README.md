@@ -43,6 +43,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
 If you are using Codex, Claude Code, or another coding agent, give it [FRIEND_ONBOARDING.md](FRIEND_ONBOARDING.md) first so it can download the app, greet you, and explain the contribution flow.
 
+Want to invite friends? Use [SHARE_WITH_FRIENDS.md](SHARE_WITH_FRIENDS.md).
+
 ## Build Locally
 
 Open `Mac Sys Settings 2.xcodeproj` in Xcode and run the `Mac Sys Settings 2` scheme.
