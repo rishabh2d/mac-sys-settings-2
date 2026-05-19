@@ -2,6 +2,8 @@
 
 This file is for Codex, Claude Code, or any coding agent helping a new person download and contribute to Mac Sys Settings 2.
 
+If the user wants to invite friends, use `SHARE_WITH_FRIENDS.md`.
+
 ## First Message To The User
 
 After cloning the repo and reading `README.md`, `CONTRIBUTING.md`, and `AGENTS.md`, greet the user with:

@@ -4,6 +4,8 @@ Read this before changing Mac Sys Settings 2.
 
 If you are helping a new friend download or join the project, read `FRIEND_ONBOARDING.md` before you speak to them. Use its greeting and keep the first explanation short, warm, and non-technical.
 
+If a user asks how to tell friends about the project, read `SHARE_WITH_FRIENDS.md` and give them the copy-paste message from that file.
+
 ## Project
 
 - Xcode project: `Mac Sys Settings 2.xcodeproj`
