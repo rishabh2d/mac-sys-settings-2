@@ -238,7 +238,7 @@ final class DownloadsWatcherController: ObservableObject {
                     reveal newFile
                     select newFile
                     my clampDownloadsWindow(leftEdge, topEdge, rightEdge, bottomEdge)
-                    repeat 40 times
+                    repeat 180 times
                         delay 0.25
                         my clampDownloadsWindow(leftEdge, topEdge, rightEdge, bottomEdge)
                     end repeat

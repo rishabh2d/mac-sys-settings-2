@@ -12,10 +12,12 @@ import SwiftUI
 final class MonitorMoveOverlayPresenter {
     private var panels: [NSPanel] = []
     private var dismissTask: Task<Void, Never>?
+    private var keyMonitor: Any?
 
     func show(
         screens: [NSScreen],
         sourceScreen: NSScreen,
+        excludingFocusedWindow: Bool,
         onSelect: @escaping (NSScreen) -> Void
     ) {
         hide()
@@ -32,6 +34,7 @@ final class MonitorMoveOverlayPresenter {
                     rootView: MonitorChoiceView(
                         screens: screens,
                         sourceScreen: sourceScreen,
+                        excludingFocusedWindow: excludingFocusedWindow,
                         displayNumber: { [weak self] index in
                             self?.displayNumber(index: index, sourceIndex: sourceIndex) ?? index + 1
                         },
@@ -49,6 +52,19 @@ final class MonitorMoveOverlayPresenter {
             panel.orderFrontRegardless()
         }
 
+        keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in
+                guard let self,
+                      let characters = event.charactersIgnoringModifiers,
+                      let number = Int(characters),
+                      let target = self.targetScreen(number: number, screens: screens, sourceIndex: sourceIndex),
+                      target != sourceScreen else {
+                    return
+                }
+                onSelect(target)
+            }
+        }
+
         dismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard let self, !Task.isCancelled else { return }
@@ -59,6 +75,10 @@ final class MonitorMoveOverlayPresenter {
     func hide() {
         dismissTask?.cancel()
         dismissTask = nil
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
         panels.forEach { $0.orderOut(nil) }
         panels.removeAll()
     }
@@ -88,11 +108,18 @@ final class MonitorMoveOverlayPresenter {
 
         return index < sourceIndex ? index + 2 : index + 1
     }
+
+    private func targetScreen(number: Int, screens: [NSScreen], sourceIndex: Int) -> NSScreen? {
+        screens.enumerated().first { index, _ in
+            displayNumber(index: index, sourceIndex: sourceIndex) == number
+        }?.element
+    }
 }
 
 private struct MonitorChoiceView: View {
     let screens: [NSScreen]
     let sourceScreen: NSScreen
+    let excludingFocusedWindow: Bool
     let displayNumber: (Int) -> Int
     let onSelect: (NSScreen) -> Void
 
@@ -102,7 +129,7 @@ private struct MonitorChoiceView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 14) {
-                Text("Move this monitor to")
+                Text(excludingFocusedWindow ? "All apps except focused to monitor" : "All apps to monitor")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(.white)
 

@@ -117,7 +117,7 @@ final class MenuBarController: NSObject {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.isVisible = true
         if let button = item.button {
-            button.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+            button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
             button.toolTip = "Battery remaining | used this week"
             button.target = self
             button.action = #selector(showBatteryStats)
@@ -276,11 +276,11 @@ private struct BatteryStatsPanelView: View {
         }
         .padding(18)
         .frame(width: 260, height: 250)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color.white.opacity(0.92))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
         )
     }
 }
@@ -303,12 +303,17 @@ private struct BatteryStatRow: View {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let micNetworkWarningController = MicNetworkWarningController.shared
+    private let screenShortcutController = ScreenShortcutController.shared
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in
             MenuBarController.shared.start()
+            screenShortcutController.start()
             CursorJumpController.shared.start()
             FileShelfController.shared.start()
             Desktop2Controller.shared.startIfNeeded()
+            micNetworkWarningController.start()
             LoginItemStore.setEnabled(true, rememberChoice: false)
             if CommandLine.arguments.contains("--show-compact") {
                 showCompactPanelForLaunchPreview()

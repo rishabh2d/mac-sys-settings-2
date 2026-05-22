@@ -14,6 +14,8 @@ final class CompactPanelController {
 
     private let panelSize = NSSize(width: 372, height: 452)
     private var panel: CompactSettingsPanel?
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
 
     func show() {
         let panel = makePanelIfNeeded()
@@ -29,10 +31,12 @@ final class CompactPanelController {
             context.duration = 0.10
             panel.animator().alphaValue = 1
         }
+        startOutsideClickMonitoring(for: panel)
     }
 
     func hide() {
         guard let panel else { return }
+        stopOutsideClickMonitoring()
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.10
             panel.animator().alphaValue = 0
@@ -43,6 +47,7 @@ final class CompactPanelController {
 
     func hideImmediately() {
         guard let panel else { return }
+        stopOutsideClickMonitoring()
         panel.alphaValue = 0
         panel.orderOut(nil)
     }
@@ -94,6 +99,39 @@ final class CompactPanelController {
             display: true
         )
     }
+
+    private func startOutsideClickMonitoring(for panel: NSPanel) {
+        stopOutsideClickMonitoring()
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self, weak panel] event in
+            guard let self, let panel else { return event }
+            if !panel.frame.contains(NSEvent.mouseLocation) {
+                self.hide()
+            }
+            return event
+        }
+
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self, weak panel] _ in
+            Task { @MainActor in
+                guard let self, let panel else { return }
+                if !panel.frame.contains(NSEvent.mouseLocation) {
+                    self.hide()
+                }
+            }
+        }
+    }
+
+    private func stopOutsideClickMonitoring() {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+            self.globalMouseMonitor = nil
+        }
+    }
 }
 
 private final class CompactSettingsPanel: NSPanel {
@@ -127,7 +165,7 @@ private struct CompactSettingsPanelView: View {
         }
         .frame(width: 372, height: 452)
         .background(panelBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .preferredColorScheme(appearance.colorScheme)
         .onReceive(NotificationCenter.default.publisher(for: AppAppearanceStore.didChangeNotification)) { _ in
             appearance = AppAppearanceStore.current
@@ -144,15 +182,21 @@ private struct CompactSettingsPanelView: View {
                         .font(.system(size: 13, weight: .bold))
                 }
                 .buttonStyle(CompactIconButtonStyle())
+                .compactHoverHaptic()
             }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(selectedSection?.title ?? "System Settings 2")
-                    .font(.system(size: selectedSection == nil ? 19 : 15, weight: .semibold))
+                    .font(.system(size: selectedSection == nil ? 21 : 15, weight: .semibold))
                     .foregroundStyle(primaryText)
                     .lineLimit(1)
                 if let selectedSection {
                     Text(selectedSection.subtitle)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(secondaryText)
+                        .lineLimit(1)
+                } else {
+                    Text("Useful Mac controls Apple should have shipped.")
                         .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(secondaryText)
                         .lineLimit(1)
@@ -165,16 +209,18 @@ private struct CompactSettingsPanelView: View {
                 onClose()
                 AppCommandBridge.showMainWindow()
             } label: {
-                Text("Open")
+                Text("OPEN")
                     .font(.system(size: 11.5, weight: .semibold))
             }
             .buttonStyle(CompactSmallTextButtonStyle())
+            .compactHoverHaptic()
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .bold))
             }
             .buttonStyle(CompactIconButtonStyle())
+            .compactHoverHaptic()
         }
         .padding(.horizontal, 14)
         .padding(.top, 14)
@@ -193,6 +239,7 @@ private struct CompactSettingsPanelView: View {
                             CompactSectionTile(section: section, isDark: isDark)
                         }
                         .buttonStyle(.plain)
+                        .compactHoverHaptic()
                     }
                 }
                 .padding(.horizontal, 14)
@@ -305,14 +352,14 @@ private struct CompactSettingsPanelView: View {
                         get: { WindowSwitcherSettingsStore.enabled },
                         set: { WindowSwitcherSettingsStore.setEnabled($0) }
                     ))
-                    CompactToggleRow(title: "Hot corner switcher", subtitle: "Bottom-right corner opens the focused app switcher.", isOn: Binding(
-                        get: { WindowSwitcherSettingsStore.bottomRightHotCorner },
-                        set: { WindowSwitcherSettingsStore.setBottomRightHotCorner($0) }
-                    ))
                 case .mic:
                     CompactToggleRow(title: "Bluetooth mic prompt", subtitle: "Show sound input choices when audio devices connect.", isOn: Binding(
                         get: { BluetoothAudioInputPromptStore.isEnabled },
                         set: { BluetoothAudioInputPromptStore.setEnabled($0) }
+                    ))
+                    CompactToggleRow(title: "Mic Wi-Fi warning", subtitle: "Warn when speech starts and Wi-Fi is off.", isOn: Binding(
+                        get: { MicNetworkWarningStore.isEnabled },
+                        set: { MicNetworkWarningStore.setEnabled($0) }
                     ))
                     CompactInfoBlock(title: "Current input", subtitle: "Open the full app for live device selection.", value: "Open app")
                 case .layouts:
@@ -458,6 +505,7 @@ private struct CompactButtonRow: View {
             Spacer()
             Button(value, action: action)
                 .buttonStyle(CompactTextButtonStyle())
+                .compactHoverHaptic()
         }
         .padding(10)
         .background(compactRowBackground)
@@ -571,5 +619,26 @@ private struct CompactSmallTextButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(Color.primary.opacity(configuration.isPressed ? 0.16 : 0.08))
             )
+    }
+}
+
+private struct CompactHoverHapticModifier: ViewModifier {
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { hovering in
+                guard hovering != isHovering else { return }
+                isHovering = hovering
+                if hovering {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                }
+            }
+    }
+}
+
+private extension View {
+    func compactHoverHaptic() -> some View {
+        modifier(CompactHoverHapticModifier())
     }
 }

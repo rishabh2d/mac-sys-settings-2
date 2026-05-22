@@ -11,7 +11,7 @@ import SwiftUI
 struct MacSysSettings2App: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var coordinator = MuteMediaCoordinator()
-    @StateObject private var screenShortcutController = ScreenShortcutController()
+    @StateObject private var screenShortcutController = ScreenShortcutController.shared
     @StateObject private var windowSwitcherController = WindowSwitcherController()
     @StateObject private var downloadsWatcherController = DownloadsWatcherController()
     @StateObject private var screenshotClipboardController = ScreenshotClipboardController()

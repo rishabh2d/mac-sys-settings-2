@@ -94,6 +94,16 @@ enum AudioInputStore {
         return AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, dataSize, &deviceID) == noErr
     }
 
+    static func activeInputDeviceNames() -> [String] {
+        inputDevices().compactMap { device in
+            isInputDeviceRunning(deviceID: device.id) ? device.name : nil
+        }
+    }
+
+    static func isAnyInputDeviceRunning() -> Bool {
+        !activeInputDeviceNames().isEmpty
+    }
+
     private static func hasInputStreams(deviceID: AudioObjectID) -> Bool {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreams,
@@ -102,6 +112,22 @@ enum AudioInputStore {
         )
         var dataSize: UInt32 = 0
         return AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &dataSize) == noErr && dataSize > 0
+    }
+
+    private static func isInputDeviceRunning(deviceID: AudioObjectID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var isRunning: UInt32 = 0
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &isRunning) == noErr else {
+            return false
+        }
+
+        return isRunning != 0
     }
 
     private static func deviceName(deviceID: AudioObjectID) -> String? {

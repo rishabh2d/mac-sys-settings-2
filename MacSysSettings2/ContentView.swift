@@ -108,7 +108,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .compactPanel: return "rectangle.inset.filled.and.person.filled"
-        case .favorites: return "star.fill"
+        case .favorites: return "pin.fill"
         case .app: return "gearshape.fill"
         case .wallpaper: return "photo.on.rectangle.angled"
         case .personal: return "person.crop.circle.fill"
@@ -1338,8 +1338,8 @@ private struct ScreenSettingsDetailView: View {
                         .padding(.leading, 10)
 
                     SettingsToggleRow(
-                        title: "Command-Option-Arrow snaps browser tab",
-                        subtitle: "In Chrome, Safari, or Edge, Command-Option-Left/Right moves the active tab into its own window and snaps that window left or right."
+                        title: "Command-Option-Arrow snaps tab or app",
+                        subtitle: "In Chrome, Safari, or Edge, it moves the active tab into its own snapped window. In other apps, it snaps the focused window left or right; press Left-Right-Right quickly to split three recent apps into thirds."
                     ) {
                         Toggle("", isOn: $browserTabSnapEnabled)
                             .toggleStyle(.switch)
@@ -1369,7 +1369,7 @@ private struct ScreenSettingsDetailView: View {
 
                     SettingsToggleRow(
                         title: "Move all windows on current monitor",
-                        subtitle: "Control-Option-Command plus any arrow moves every visible window on the active monitor to the other monitor."
+                        subtitle: "Control-Option-Command plus arrows arranges recent apps. One arrow places the top app left or right; more arrows add more recent windows."
                     ) {
                         Toggle("", isOn: $monitorMoveShortcutEnabled)
                             .toggleStyle(.switch)
@@ -1383,7 +1383,7 @@ private struct ScreenSettingsDetailView: View {
 
                     SettingsToggleRow(
                         title: "Move other windows on current monitor",
-                        subtitle: "Control-Option-Command-Space, then any arrow moves every visible window except the focused one."
+                        subtitle: "Control-Option-Command-Space opens the monitor chooser. Press an arrow after Space to switch it to all apps except the focused one."
                     ) {
                         Toggle("", isOn: $monitorMoveOthersShortcutEnabled)
                             .toggleStyle(.switch)
@@ -1695,7 +1695,6 @@ private struct WindowSwitcherSettingsDetailView: View {
     @State private var includeMinimized = WindowSwitcherSettingsStore.includeMinimized
     @State private var currentMonitorFirst = WindowSwitcherSettingsStore.currentMonitorFirst
     @State private var moveCursorToSelectedMonitor = WindowSwitcherSettingsStore.moveCursorToSelectedMonitor
-    @State private var bottomRightHotCorner = WindowSwitcherSettingsStore.bottomRightHotCorner
     @State private var excludeFinder = WindowSwitcherSettingsStore.excludeFinder
     @State private var excludeHiddenApps = WindowSwitcherSettingsStore.excludeHiddenApps
     @State private var accessibilityTrusted = AXIsProcessTrusted()
@@ -1771,33 +1770,6 @@ private struct WindowSwitcherSettingsDetailView: View {
                         ModifierKeySafety.releaseShortcutModifiers()
                         keyboardSafetyStatus = "Reset sent"
                     }
-                }
-            }
-
-            SettingsSectionBlock(
-                title: "Mouse Trigger",
-                subtitle: "Optional step for using the switcher without pressing Option-Tab."
-            ) {
-                SettingsGroup {
-                    SettingsToggleRow(
-                        title: "Bottom-right hot corner opens switcher",
-                        subtitle: "Move the pointer into the absolute bottom-right corner of a monitor to show windows for the app currently in focus. Click a card to switch."
-                    ) {
-                        Toggle("", isOn: $bottomRightHotCorner)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .onChange(of: bottomRightHotCorner) { _, newValue in
-                                WindowSwitcherSettingsStore.setBottomRightHotCorner(newValue)
-                            }
-                    }
-
-                    Divider()
-
-                    SettingsInfoRow(
-                        title: "Trigger behavior",
-                        subtitle: "It only fires after you leave and re-enter the corner, with a short cooldown so sitting in the corner does not spam overlays.",
-                        value: bottomRightHotCorner ? "On" : "Off"
-                    )
                 }
             }
 
@@ -1903,7 +1875,6 @@ private struct WindowSwitcherSettingsDetailView: View {
                     StatusItem(title: "Switcher", value: enabled ? "On" : "Off", state: enabled ? .good : .warning),
                     StatusItem(title: "Accessibility", value: accessibilityTrusted ? "Allowed" : "Off", state: accessibilityTrusted ? .good : .warning),
                     StatusItem(title: "Thumbnails", value: showThumbnails ? "Prepared" : "Cards", state: .good),
-                    StatusItem(title: "Hot Corner", value: bottomRightHotCorner ? "On" : "Off", state: bottomRightHotCorner ? .good : .warning),
                     StatusItem(title: "Minimized", value: includeMinimized ? "Included" : "Hidden", state: includeMinimized ? .warning : .good)
                 ])
             }
@@ -1920,7 +1891,6 @@ private struct WindowSwitcherSettingsDetailView: View {
         includeMinimized = WindowSwitcherSettingsStore.includeMinimized
         currentMonitorFirst = WindowSwitcherSettingsStore.currentMonitorFirst
         moveCursorToSelectedMonitor = WindowSwitcherSettingsStore.moveCursorToSelectedMonitor
-        bottomRightHotCorner = WindowSwitcherSettingsStore.bottomRightHotCorner
         excludeFinder = WindowSwitcherSettingsStore.excludeFinder
         excludeHiddenApps = WindowSwitcherSettingsStore.excludeHiddenApps
         accessibilityTrusted = AXIsProcessTrusted()
@@ -1931,11 +1901,13 @@ private struct MicSettingsDetailView: View {
     @State private var devices = AudioInputStore.inputDevices()
     @State private var defaultDevice = AudioInputStore.defaultInputDevice()
     @State private var bluetoothPromptsEnabled = BluetoothAudioInputPromptStore.isEnabled
+    @State private var networkWarningEnabled = MicNetworkWarningStore.isEnabled
+    @State private var activeMicNames = AudioInputStore.activeInputDeviceNames()
     @State private var lastResult = "Ready"
-    private let timer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        SettingsPage(title: "Mic", subtitle: "Keep your system input clean when Bluetooth headphones connect.") {
+        SettingsPage(title: "Mic", subtitle: "Keep your system input clean when Bluetooth headphones connect or speech starts offline.") {
             SettingsSectionBlock(
                 title: "Bluetooth Audio Prompt",
                 subtitle: "Useful for AirPods and headphones that crush input quality when macOS chooses their mic."
@@ -1950,6 +1922,25 @@ private struct MicSettingsDetailView: View {
                             .labelsHidden()
                             .onChange(of: bluetoothPromptsEnabled) { _, newValue in
                                 BluetoothAudioInputPromptStore.setEnabled(newValue)
+                            }
+                    }
+                }
+            }
+
+            SettingsSectionBlock(
+                title: "Speech Wi-Fi Warning",
+                subtitle: "Warn immediately when any app starts using the microphone while Wi-Fi is off or disconnected."
+            ) {
+                SettingsGroup {
+                    SettingsToggleRow(
+                        title: "Warn when mic starts offline",
+                        subtitle: "Works at the Mac audio-device level, so it can catch Codex, ChatGPT, WhatsApp, browser voice search, and dictation-style apps when they activate a microphone."
+                    ) {
+                        Toggle("", isOn: $networkWarningEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .onChange(of: networkWarningEnabled) { _, newValue in
+                                MicNetworkWarningStore.setEnabled(newValue)
                             }
                     }
                 }
@@ -1989,6 +1980,8 @@ private struct MicSettingsDetailView: View {
                     StatusItem(title: "Default Mic", value: defaultDevice?.name ?? "None", state: defaultDevice == nil ? .warning : .good),
                     StatusItem(title: "Inputs", value: "\(devices.count)", state: devices.isEmpty ? .warning : .good),
                     StatusItem(title: "Bluetooth Prompt", value: bluetoothPromptsEnabled ? "On" : "Off", state: bluetoothPromptsEnabled ? .good : .warning),
+                    StatusItem(title: "Wi-Fi Warning", value: networkWarningEnabled ? "On" : "Off", state: networkWarningEnabled ? .good : .warning),
+                    StatusItem(title: "Mic Active", value: activeMicNames.isEmpty ? "No" : "Yes", state: activeMicNames.isEmpty ? .warning : .good),
                     StatusItem(title: "Last Action", value: lastResult, state: .good)
                 ])
             }
@@ -2014,6 +2007,8 @@ private struct MicSettingsDetailView: View {
         devices = AudioInputStore.inputDevices()
         defaultDevice = AudioInputStore.defaultInputDevice()
         bluetoothPromptsEnabled = BluetoothAudioInputPromptStore.isEnabled
+        networkWarningEnabled = MicNetworkWarningStore.isEnabled
+        activeMicNames = AudioInputStore.activeInputDeviceNames()
     }
 }
 
