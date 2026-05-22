@@ -108,7 +108,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var iconName: String {
         switch self {
         case .compactPanel: return "rectangle.inset.filled.and.person.filled"
-        case .favorites: return "star.fill"
+        case .favorites: return "pin.fill"
         case .app: return "gearshape.fill"
         case .wallpaper: return "photo.on.rectangle.angled"
         case .personal: return "person.crop.circle.fill"
@@ -1695,7 +1695,6 @@ private struct WindowSwitcherSettingsDetailView: View {
     @State private var includeMinimized = WindowSwitcherSettingsStore.includeMinimized
     @State private var currentMonitorFirst = WindowSwitcherSettingsStore.currentMonitorFirst
     @State private var moveCursorToSelectedMonitor = WindowSwitcherSettingsStore.moveCursorToSelectedMonitor
-    @State private var bottomRightHotCorner = WindowSwitcherSettingsStore.bottomRightHotCorner
     @State private var excludeFinder = WindowSwitcherSettingsStore.excludeFinder
     @State private var excludeHiddenApps = WindowSwitcherSettingsStore.excludeHiddenApps
     @State private var accessibilityTrusted = AXIsProcessTrusted()
@@ -1771,33 +1770,6 @@ private struct WindowSwitcherSettingsDetailView: View {
                         ModifierKeySafety.releaseShortcutModifiers()
                         keyboardSafetyStatus = "Reset sent"
                     }
-                }
-            }
-
-            SettingsSectionBlock(
-                title: "Mouse Trigger",
-                subtitle: "Optional step for using the switcher without pressing Option-Tab."
-            ) {
-                SettingsGroup {
-                    SettingsToggleRow(
-                        title: "Bottom-right hot corner opens switcher",
-                        subtitle: "Move the pointer into the absolute bottom-right corner of a monitor to show windows for the app currently in focus. Click a card to switch."
-                    ) {
-                        Toggle("", isOn: $bottomRightHotCorner)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .onChange(of: bottomRightHotCorner) { _, newValue in
-                                WindowSwitcherSettingsStore.setBottomRightHotCorner(newValue)
-                            }
-                    }
-
-                    Divider()
-
-                    SettingsInfoRow(
-                        title: "Trigger behavior",
-                        subtitle: "It only fires after you leave and re-enter the corner, with a short cooldown so sitting in the corner does not spam overlays.",
-                        value: bottomRightHotCorner ? "On" : "Off"
-                    )
                 }
             }
 
@@ -1903,7 +1875,6 @@ private struct WindowSwitcherSettingsDetailView: View {
                     StatusItem(title: "Switcher", value: enabled ? "On" : "Off", state: enabled ? .good : .warning),
                     StatusItem(title: "Accessibility", value: accessibilityTrusted ? "Allowed" : "Off", state: accessibilityTrusted ? .good : .warning),
                     StatusItem(title: "Thumbnails", value: showThumbnails ? "Prepared" : "Cards", state: .good),
-                    StatusItem(title: "Hot Corner", value: bottomRightHotCorner ? "On" : "Off", state: bottomRightHotCorner ? .good : .warning),
                     StatusItem(title: "Minimized", value: includeMinimized ? "Included" : "Hidden", state: includeMinimized ? .warning : .good)
                 ])
             }
@@ -1920,7 +1891,6 @@ private struct WindowSwitcherSettingsDetailView: View {
         includeMinimized = WindowSwitcherSettingsStore.includeMinimized
         currentMonitorFirst = WindowSwitcherSettingsStore.currentMonitorFirst
         moveCursorToSelectedMonitor = WindowSwitcherSettingsStore.moveCursorToSelectedMonitor
-        bottomRightHotCorner = WindowSwitcherSettingsStore.bottomRightHotCorner
         excludeFinder = WindowSwitcherSettingsStore.excludeFinder
         excludeHiddenApps = WindowSwitcherSettingsStore.excludeHiddenApps
         accessibilityTrusted = AXIsProcessTrusted()
