@@ -12,8 +12,11 @@ import Foundation
 
 @MainActor
 final class ScreenShortcutController: ObservableObject {
+    static let shared = ScreenShortcutController()
+
     @Published private(set) var lastStatus = "\(ScreenShortcut.current().displayText) is ready."
 
+    private var hasStarted = false
     private var moveHotKeyRef: EventHotKeyRef?
     private var pairedMoveHotKeyRef: EventHotKeyRef?
     private var leftSnapHotKeyRef: EventHotKeyRef?
@@ -80,8 +83,19 @@ final class ScreenShortcutController: ObservableObject {
     private var activeSnapTarget: SnapTarget?
     private var activeSnapTargetUntil = Date.distantPast
     private var browserTabPairCandidate: BrowserTabPairCandidate?
+    private var browserTabSnapInFlight: BrowserTabSnapInFlight?
+    private var pendingBrowserTabPairSide: SnapSide?
+    private var commandOptionArrowSequence: [CommandOptionArrowPress] = []
+    private var monitorArrangeArrowSequence: [CommandOptionArrowPress] = []
+    private var pendingMonitorMoveTask: Task<Void, Never>?
+    private var pendingControlUpSnapTask: Task<Void, Never>?
+    private var lastControlUpPressDate: Date?
 
     func start() {
+        guard !hasStarted else {
+            return
+        }
+        hasStarted = true
         log("ScreenShortcutController starting")
         requestAccessibilityAccess()
         observeShortcutChanges()
@@ -336,8 +350,11 @@ final class ScreenShortcutController: ObservableObject {
         case rightSnapHotKeyID.id:
             log("Control-Right hotkey pressed")
             snapFrontWindow(to: .right)
-        case upSnapHotKeyID.id, optionUpSnapHotKeyID.id, commandUpSnapHotKeyID.id:
-            log("Up snap hotkey pressed")
+        case upSnapHotKeyID.id:
+            log("Control-Up hotkey pressed")
+            handleControlUpPressed()
+        case optionUpSnapHotKeyID.id, commandUpSnapHotKeyID.id:
+            log("Up snap alias hotkey pressed")
             snapFrontWindow(to: .up)
         case browserTabLeftHotKeyID.id:
             log("Command-Option-Left browser tab snap pressed")
@@ -1028,7 +1045,7 @@ final class ScreenShortcutController: ObservableObject {
                         controller.moveWindowsOnActiveScreenToNextScreen(excludingFocusedWindow: true)
                     } else {
                         controller.log("Control-Option-Command arrow event tap pressed")
-                        controller.moveWindowsOnActiveScreenToNextScreen(excludingFocusedWindow: false)
+                        controller.handleMonitorMoveOrArrangeArrowPressed(keyCode: keyCode)
                     }
                 }
                 return nil
@@ -1044,7 +1061,7 @@ final class ScreenShortcutController: ObservableObject {
                         controller.snapFrontWindow(to: .right)
                     } else if keyCode == Int64(kVK_UpArrow) {
                         controller.log("Control-Up event tap pressed")
-                        controller.snapFrontWindow(to: .up)
+                        controller.handleControlUpPressed()
                     } else if keyCode == Int64(kVK_DownArrow) {
                         controller.log("Control-Down event tap pressed")
                         controller.snapFrontWindow(to: .down)
@@ -1188,7 +1205,7 @@ final class ScreenShortcutController: ObservableObject {
 
         if Self.isMonitorMoveArrowEvent(event) {
             log("Control-Option-Command arrow event pressed")
-            moveWindowsOnActiveScreenToNextScreen(excludingFocusedWindow: false)
+            handleMonitorMoveOrArrangeArrowPressed(keyCode: Int64(event.keyCode))
             return
         }
 
@@ -2076,8 +2093,24 @@ final class ScreenShortcutController: ObservableObject {
 
     private func armMoveOthersShortcut() {
         moveOthersArmedUntil = Date().addingTimeInterval(4)
-        lastStatus = "Move others is ready."
-        log("move others armed")
+        let screens = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }
+        guard screens.count > 1 else {
+            lastStatus = "Only one screen is connected."
+            log("move others ignored: only one screen")
+            return
+        }
+
+        let sourceScreen = activeScreenForMonitorMove(from: screens)
+        if screens.count > 2 {
+            showMonitorMoveOptions(
+                screens: screens,
+                sourceScreen: sourceScreen,
+                excludingFocusedWindow: false
+            )
+        }
+
+        lastStatus = "Move monitor windows is ready."
+        log("move monitor windows armed")
     }
 
     private func isMoveOthersArrowEvent(_ event: NSEvent) -> Bool {
@@ -2176,8 +2209,145 @@ final class ScreenShortcutController: ObservableObject {
         )
     }
 
+    private func handleMonitorMoveOrArrangeArrowPressed(keyCode: Int64) {
+        guard AXIsProcessTrusted() else {
+            log("monitor arrange blocked by missing Accessibility permission")
+            requestAccessibilityAccess()
+            return
+        }
+
+        guard let side = snapSide(forArrowKeyCode: keyCode) else { return }
+        let now = Date()
+        monitorArrangeArrowSequence = monitorArrangeArrowSequence.filter {
+            now.timeIntervalSince($0.pressedAt) <= 0.7
+        }
+        monitorArrangeArrowSequence.append(CommandOptionArrowPress(side: side, pressedAt: now))
+
+        pendingMonitorMoveTask?.cancel()
+
+        pendingMonitorMoveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                let sequence = self.monitorArrangeArrowSequence
+                self.monitorArrangeArrowSequence.removeAll()
+                self.arrangeRecentAppWindowsAcrossScreens(sequence: sequence)
+            }
+        }
+    }
+
+    private func snapSide(forArrowKeyCode keyCode: Int64) -> SnapSide? {
+        switch keyCode {
+        case Int64(kVK_LeftArrow):
+            return .left
+        case Int64(kVK_RightArrow):
+            return .right
+        default:
+            return nil
+        }
+    }
+
+    private func arrangeRecentAppWindowsAcrossScreens(sequence: [CommandOptionArrowPress]) {
+        let screenFrames = NSScreen.screens
+            .map { accessibilityScreenFrame(for: $0) }
+            .sorted { lhs, rhs in
+                if abs(lhs.minX - rhs.minX) > 8 { return lhs.minX < rhs.minX }
+                return lhs.minY < rhs.minY
+            }
+
+        guard !screenFrames.isEmpty else {
+            lastStatus = "No screens found for app arrange."
+            log("recent-app arrange failed: no screens")
+            return
+        }
+
+        var seenWindows = Set<String>()
+        let candidates = visibleWindowInfos().compactMap { info -> SnapTarget? in
+            let windowKey = "\(info.processIdentifier)-\(info.windowNumber)"
+            guard info.processIdentifier != getpid(),
+                  isArrangeEligibleApp(processIdentifier: info.processIdentifier),
+                  !seenWindows.contains(windowKey),
+                  let target = snapTarget(from: info),
+                  target.window != nil,
+                  screenFrames.contains(where: { mostlyIntersects(target.frame, $0) }) else {
+                return nil
+            }
+            seenWindows.insert(windowKey)
+            return target
+        }
+
+        guard !candidates.isEmpty else {
+            lastStatus = "Need an app window to arrange."
+            log("recent-app arrange found \(candidates.count) eligible windows")
+            return
+        }
+
+        let maxSlotCount = max(2, screenFrames.count * 3)
+        let targetCount = min(max(1, sequence.count), maxSlotCount, candidates.count)
+        let targets = Array(candidates.prefix(targetCount))
+        let frames = arrangeFrames(for: sequence, targetCount: targetCount, screenFrames: screenFrames)
+
+        for (index, pair) in zip(targets, frames).enumerated() {
+            let (target, frame) = pair
+            let containingScreenFrame = screenFrames.first { mostlyIntersects(frame, $0) } ?? frame
+            _ = nextSnapAnimationToken(for: target.snapKey)
+            if let window = target.window {
+                setColumnWindow(window, to: frame, screenFrame: containingScreenFrame, columnIndex: index % 3)
+                log("recent-app arranged \(target.appName) to \(frame)")
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            guard let self else { return }
+            for (index, pair) in zip(targets, frames).enumerated() {
+                let (target, frame) = pair
+                let containingScreenFrame = screenFrames.first { self.mostlyIntersects(frame, $0) } ?? frame
+                _ = self.nextSnapAnimationToken(for: target.snapKey)
+                if let window = target.window {
+                    self.setColumnWindow(window, to: frame, screenFrame: containingScreenFrame, columnIndex: index % 3)
+                    self.log("recent-app reasserted \(target.appName) to \(frame)")
+                }
+            }
+        }
+
+        activeSnapTarget = nil
+        activeSnapTargetUntil = Date.distantPast
+        lastStatus = "Arranged \(targetCount) recent apps."
+    }
+
+    private func arrangeFrames(for sequence: [CommandOptionArrowPress], targetCount: Int, screenFrames: [CGRect]) -> [CGRect] {
+        if targetCount <= 2, let focusedFrame = focusedSnapTarget()?.screenFrame ?? screenFrames.first {
+            let width = floor(focusedFrame.width / 2.0)
+            let y = focusedFrame.minY.rounded(.toNearestOrAwayFromZero)
+            let height = focusedFrame.height.rounded(.toNearestOrAwayFromZero)
+            let leftFrame = CGRect(x: focusedFrame.minX.rounded(.toNearestOrAwayFromZero), y: y, width: width.rounded(.toNearestOrAwayFromZero), height: height)
+            let rightFrame = CGRect(x: (focusedFrame.maxX - width).rounded(.toNearestOrAwayFromZero), y: y, width: width.rounded(.toNearestOrAwayFromZero), height: height)
+            return sequence.prefix(targetCount).map { $0.side == .left ? leftFrame : rightFrame }
+        }
+
+        return Array(screenFrames.flatMap { threeColumnFrames(in: $0) }.prefix(targetCount))
+    }
+
+    private func isArrangeEligibleApp(processIdentifier: pid_t) -> Bool {
+        guard let app = NSWorkspace.shared.runningApplications.first(where: {
+            $0.processIdentifier == processIdentifier && !$0.isTerminated
+        }) else {
+            return false
+        }
+
+        guard app.activationPolicy == .regular else { return false }
+        guard app.bundleIdentifier != "com.apple.Photos" else { return false }
+        guard app.localizedName != "AgentPanelNotification" else { return false }
+        return true
+    }
+
     private func showMonitorMoveOptions(screens: [NSScreen], sourceScreen: NSScreen, excludingFocusedWindow: Bool) {
-        monitorMoveOverlayPresenter.show(screens: screens, sourceScreen: sourceScreen) { [weak self] targetScreen in
+        monitorMoveOverlayPresenter.show(
+            screens: screens,
+            sourceScreen: sourceScreen,
+            excludingFocusedWindow: excludingFocusedWindow
+        ) { [weak self] targetScreen in
             guard let self else { return }
             monitorMoveOverlayPresenter.hide()
             moveWindows(
@@ -2468,13 +2638,24 @@ final class ScreenShortcutController: ObservableObject {
         let expiresAt: Date
     }
 
+    private struct BrowserTabSnapInFlight {
+        let definition: BrowserTabSnapDefinition
+        let side: SnapSide
+        let expiresAt: Date
+    }
+
+    private struct CommandOptionArrowPress {
+        let side: SnapSide
+        let pressedAt: Date
+    }
+
     private let browserTabSnapDefinitions = [
         BrowserTabSnapDefinition(bundleIdentifier: "com.google.Chrome", appName: "Google Chrome", usesChromeScripting: true),
         BrowserTabSnapDefinition(bundleIdentifier: "com.microsoft.edgemac", appName: "Microsoft Edge", usesChromeScripting: true),
         BrowserTabSnapDefinition(bundleIdentifier: "com.apple.Safari", appName: "Safari", usesChromeScripting: false)
     ]
 
-    private func snapFrontWindow(to side: SnapSide) {
+    private func snapFrontWindow(to side: SnapSide, cyclesHorizontalSizes: Bool = true) {
         guard AXIsProcessTrusted() else {
             log("snap blocked by missing Accessibility permission")
             requestAccessibilityAccess()
@@ -2492,7 +2673,8 @@ final class ScreenShortcutController: ObservableObject {
             in: target.screenFrame,
             side: side,
             usesAccessibilityCoordinates: target.usesAccessibilityCoordinates,
-            snapKey: target.snapKey
+            snapKey: target.snapKey,
+            cyclesHorizontalSizes: cyclesHorizontalSizes
         )
 
         if let ownWindow = target.ownWindow {
@@ -2512,7 +2694,8 @@ final class ScreenShortcutController: ObservableObject {
                     from: target.frame,
                     to: newFrame,
                     side: side,
-                    screenFrame: target.screenFrame
+                    screenFrame: target.screenFrame,
+                    snapKey: target.snapKey
                 )
             } else {
                 setWindowSmoothly(
@@ -2539,9 +2722,92 @@ final class ScreenShortcutController: ObservableObject {
 
         if side == .left || side == .right,
            let definition = browserTabSnapDefinition(for: target) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.62) { [weak self] in
-                self?.pressTheaterModeIfYouTube(in: definition)
-            }
+            forceYouTubeTheaterModeWithRetries(in: definition)
+        }
+    }
+
+    private func handleControlUpPressed() {
+        guard shouldUseChromeDoubleUpMerge() else {
+            clearPendingControlUpSnap()
+            snapFrontWindow(to: .up)
+            return
+        }
+
+        let now = Date()
+        if let lastControlUpPressDate,
+           now.timeIntervalSince(lastControlUpPressDate) <= 0.3 {
+            clearPendingControlUpSnap()
+            mergeActiveChromeTabIntoNextWindow()
+            return
+        }
+
+        lastControlUpPressDate = now
+        pendingControlUpSnapTask?.cancel()
+        pendingControlUpSnapTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.pendingControlUpSnapTask = nil
+            self.lastControlUpPressDate = nil
+            self.snapFrontWindow(to: .up)
+        }
+    }
+
+    private func clearPendingControlUpSnap() {
+        pendingControlUpSnapTask?.cancel()
+        pendingControlUpSnapTask = nil
+        lastControlUpPressDate = nil
+    }
+
+    private func shouldUseChromeDoubleUpMerge() -> Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.bundleIdentifier == "com.google.Chrome" else {
+            return false
+        }
+
+        let script = """
+        tell application id "com.google.Chrome"
+            if (count of windows) < 2 then return "no"
+            if (count of tabs of front window) < 1 then return "no"
+            return "yes"
+        end tell
+        """
+
+        var error: NSDictionary?
+        return NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue == "yes"
+    }
+
+    private func mergeActiveChromeTabIntoNextWindow() {
+        let script = """
+        tell application id "com.google.Chrome"
+            if (count of windows) < 2 then return "no-target"
+            set sourceWindow to front window
+            set targetWindow to window 2
+            set sourceTab to active tab of sourceWindow
+            set sourceURL to URL of sourceTab
+            if sourceURL is missing value or sourceURL is "" then return "empty-url"
+            make new tab at end of tabs of targetWindow with properties {URL:sourceURL}
+            set active tab index of targetWindow to (count of tabs of targetWindow)
+            set index of targetWindow to 1
+            activate
+            if (count of tabs of sourceWindow) is less than or equal to 1 then
+                close sourceWindow
+            else
+                close sourceTab
+            end if
+            return "merged"
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output == "merged" {
+            activeSnapTarget = nil
+            activeSnapTargetUntil = Date.distantPast
+            lastStatus = "Merged Chrome tab into the window behind."
+            log("Control-Up double press merged Chrome tab into next window")
+        } else {
+            lastStatus = "Could not merge Chrome tab."
+            log("Control-Up double press merge failed \(error?.description ?? output)")
         }
     }
 
@@ -2564,14 +2830,29 @@ final class ScreenShortcutController: ObservableObject {
 
         guard let app = NSWorkspace.shared.frontmostApplication,
               let definition = browserTabSnapDefinitions.first(where: { $0.bundleIdentifier == app.bundleIdentifier }) else {
-            lastStatus = "Command-Option-Arrow tab snap works in Chrome, Safari, and Edge."
-            log("browser tab snap ignored for unsupported app \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
+            if handleCommandOptionThreeColumnSequence(side: side) {
+                return
+            }
+            lastStatus = "Snapping focused app window."
+            log("Command-Option browser tab snap fell back to app window for \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
+            snapFrontWindow(to: side, cyclesHorizontalSizes: false)
             return
         }
 
         let sourceTarget = focusedSnapTarget()
         let pairCandidate = browserTabPairCandidate
         let shouldUsePair = shouldUseBrowserTabPair(for: definition, side: side)
+
+        if !shouldUsePair,
+           let inFlight = browserTabSnapInFlight,
+           inFlight.expiresAt > Date(),
+           inFlight.definition.bundleIdentifier == definition.bundleIdentifier,
+           inFlight.side != side {
+            pendingBrowserTabPairSide = side
+            lastStatus = "Queued opposite \(definition.appName) tab snap."
+            log("queued browser tab pair \(side) while first snap is still creating its window")
+            return
+        }
 
         if shouldUsePair, let pairCandidate {
             if pairCandidate.firstCreatedNewWindow {
@@ -2581,13 +2862,21 @@ final class ScreenShortcutController: ObservableObject {
             }
         }
 
+        browserTabSnapInFlight = BrowserTabSnapInFlight(
+            definition: definition,
+            side: side,
+            expiresAt: Date().addingTimeInterval(0.55)
+        )
+
         let result = runBrowserTabSnapScript(definition)
+        browserTabSnapInFlight = nil
         guard result.success else {
             lastStatus = result.message
             log("browser tab snap failed: \(result.message)")
             if shouldUsePair {
                 browserTabPairCandidate = nil
             }
+            pendingBrowserTabPairSide = nil
             return
         }
 
@@ -2608,17 +2897,211 @@ final class ScreenShortcutController: ObservableObject {
             : "Snapping \(definition.appName) tab \(side == .left ? "left" : "right")."
         log("browser tab snap script result \(result.message)")
 
+        let fixedSnapScreenFrame = browserTabSnapScreenFrame(
+            sourceTarget: sourceTarget,
+            pairCandidate: pairCandidate,
+            shouldUsePair: shouldUsePair
+        )
+        let didImmediateFixedSnap: Bool
+        if let targetWindowID = result.targetWindowID,
+           let fixedSnapScreenFrame {
+            didImmediateFixedSnap = snapBrowserWindow(
+                definition,
+                windowID: targetWindowID,
+                side: side,
+                screenFrame: fixedSnapScreenFrame
+            )
+        } else {
+            didImmediateFixedSnap = false
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + result.snapDelay) { [weak self] in
             guard let self else { return }
-            if let targetWindowID = result.targetWindowID {
-                _ = self.focusBrowserWindow(definition, windowID: targetWindowID)
+            let didSnapBrowserWindow: Bool
+            if let targetWindowID = result.targetWindowID,
+               let fixedSnapScreenFrame {
+                didSnapBrowserWindow = self.snapBrowserWindow(
+                    definition,
+                    windowID: targetWindowID,
+                    side: side,
+                    screenFrame: fixedSnapScreenFrame
+                ) || didImmediateFixedSnap
+            } else {
+                didSnapBrowserWindow = didImmediateFixedSnap
             }
-            self.snapFrontWindow(to: side)
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) { [weak self] in
-                self?.pressTheaterModeIfYouTube(in: definition)
+            if !didSnapBrowserWindow {
+                if let targetWindowID = result.targetWindowID {
+                    _ = self.focusBrowserWindow(definition, windowID: targetWindowID)
+                }
+                self.snapFrontWindow(to: side)
+            }
+
+            if let pendingSide = self.pendingBrowserTabPairSide,
+               pendingSide != side {
+                self.pendingBrowserTabPairSide = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                    self?.snapActiveBrowserTab(to: pendingSide)
+                }
+            }
+
+            self.forceYouTubeTheaterModeWithRetries(in: definition, windowID: result.targetWindowID)
+        }
+    }
+
+    private func browserTabSnapScreenFrame(sourceTarget: SnapTarget?, pairCandidate: BrowserTabPairCandidate?, shouldUsePair: Bool) -> CGRect? {
+        if shouldUsePair, let pairCandidate {
+            return pairCandidate.sourceScreenFrame
+        }
+        return sourceTarget?.screenFrame ?? focusedSnapTarget()?.screenFrame
+    }
+
+    private func snapBrowserWindow(_ definition: BrowserTabSnapDefinition, windowID: String, side: SnapSide, screenFrame: CGRect) -> Bool {
+        guard definition.usesChromeScripting || definition.bundleIdentifier == "com.apple.Safari" else { return false }
+        guard side == .left || side == .right else { return false }
+
+        let width = floor(screenFrame.width / 2.0)
+        let x = side == .left ? screenFrame.minX : screenFrame.maxX - width
+        let frame = CGRect(
+            x: x.rounded(.toNearestOrAwayFromZero),
+            y: screenFrame.minY.rounded(.toNearestOrAwayFromZero),
+            width: width.rounded(.toNearestOrAwayFromZero),
+            height: screenFrame.height.rounded(.toNearestOrAwayFromZero)
+        )
+
+        if definition.usesChromeScripting {
+            return setChromeWindowBounds(windowID: windowID, frame: frame)
+        }
+
+        return false
+    }
+
+    private func handleCommandOptionThreeColumnSequence(side: SnapSide) -> Bool {
+        guard side == .left || side == .right else { return false }
+
+        let now = Date()
+        commandOptionArrowSequence = commandOptionArrowSequence.filter {
+            now.timeIntervalSince($0.pressedAt) <= 0.65
+        }
+        commandOptionArrowSequence.append(CommandOptionArrowPress(side: side, pressedAt: now))
+
+        guard commandOptionArrowSequence.count >= 3 else { return false }
+        let recentSides = commandOptionArrowSequence.suffix(3).map(\.side)
+        guard recentSides == [.left, .right, .right] || recentSides == [.right, .left, .left] else {
+            commandOptionArrowSequence = Array(commandOptionArrowSequence.suffix(3))
+            return false
+        }
+
+        commandOptionArrowSequence.removeAll()
+        return snapThreeRecentAppWindowsIntoColumns()
+    }
+
+    private func snapThreeRecentAppWindowsIntoColumns() -> Bool {
+        guard let focusedTarget = focusedSnapTarget() ?? snapTargetUnderMouse() else {
+            lastStatus = "No focused screen for three-column snap."
+            log("three-column snap failed: no focused screen")
+            return false
+        }
+
+        let screenFrame = focusedTarget.screenFrame
+        var seenWindows = Set<String>()
+        let targets = visibleWindowInfos().compactMap { info -> SnapTarget? in
+            let windowKey = "\(info.processIdentifier)-\(info.windowNumber)"
+            guard let frame = info.frame,
+                  mostlyIntersects(frame, screenFrame),
+                  info.processIdentifier != getpid(),
+                  !seenWindows.contains(windowKey),
+                  let target = snapTarget(from: info),
+                  target.window != nil else {
+                return nil
+            }
+            seenWindows.insert(windowKey)
+            return target
+        }.prefix(3)
+
+        guard targets.count == 3 else {
+            lastStatus = "Need three visible app windows on this monitor."
+            log("three-column snap found \(targets.count) eligible windows on focused screen")
+            return false
+        }
+
+        let snappedTargets = Array(targets)
+        let frames = threeColumnFrames(in: screenFrame)
+        for (index, pair) in zip(snappedTargets, frames).enumerated() {
+            let (target, frame) = pair
+            _ = nextSnapAnimationToken(for: target.snapKey)
+            if let window = target.window {
+                setColumnWindow(window, to: frame, screenFrame: screenFrame, columnIndex: index)
+                log("three-column snapped \(target.appName) from \(target.frame) to \(frame)")
             }
         }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            guard let self else { return }
+            for (index, pair) in zip(snappedTargets, frames).enumerated() {
+                let (target, frame) = pair
+                _ = self.nextSnapAnimationToken(for: target.snapKey)
+                if let window = target.window {
+                    self.setColumnWindow(window, to: frame, screenFrame: screenFrame, columnIndex: index)
+                    self.log("three-column reasserted \(target.appName) to \(frame)")
+                }
+            }
+        }
+
+        activeSnapTarget = nil
+        activeSnapTargetUntil = Date.distantPast
+        lastStatus = "Snapped three apps into thirds."
+        return true
+    }
+
+    private func setColumnWindow(_ window: AXUIElement, to targetFrame: CGRect, screenFrame: CGRect, columnIndex: Int) {
+        setWindow(window, position: targetFrame.origin, size: targetFrame.size)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self,
+                  let position = self.windowPoint(window, attribute: kAXPositionAttribute),
+                  let size = self.windowSize(window) else {
+                return
+            }
+
+            let currentFrame = CGRect(origin: position, size: size)
+            let adjustedX: CGFloat
+            switch columnIndex {
+            case 0:
+                adjustedX = screenFrame.minX
+            case 2:
+                adjustedX = screenFrame.maxX - currentFrame.width
+            default:
+                adjustedX = min(
+                    max(screenFrame.minX, targetFrame.midX - currentFrame.width / 2.0),
+                    screenFrame.maxX - currentFrame.width
+                )
+            }
+
+            let adjustedFrame = CGRect(
+                x: adjustedX.rounded(.toNearestOrAwayFromZero),
+                y: targetFrame.minY.rounded(.toNearestOrAwayFromZero),
+                width: currentFrame.width.rounded(.toNearestOrAwayFromZero),
+                height: targetFrame.height.rounded(.toNearestOrAwayFromZero)
+            )
+            self.setWindow(window, position: adjustedFrame.origin, size: adjustedFrame.size)
+        }
+    }
+
+    private func threeColumnFrames(in screenFrame: CGRect) -> [CGRect] {
+        let leftWidth = floor(screenFrame.width / 3.0)
+        let middleX = screenFrame.minX + leftWidth
+        let rightX = screenFrame.minX + floor(screenFrame.width * 2.0 / 3.0)
+        let middleWidth = rightX - middleX
+        let rightWidth = screenFrame.maxX - rightX
+        let y = screenFrame.minY.rounded(.toNearestOrAwayFromZero)
+        let height = screenFrame.height.rounded(.toNearestOrAwayFromZero)
+
+        return [
+            CGRect(x: screenFrame.minX.rounded(.toNearestOrAwayFromZero), y: y, width: max(160, leftWidth.rounded(.toNearestOrAwayFromZero)), height: height),
+            CGRect(x: middleX.rounded(.toNearestOrAwayFromZero), y: y, width: max(160, middleWidth.rounded(.toNearestOrAwayFromZero)), height: height),
+            CGRect(x: rightX.rounded(.toNearestOrAwayFromZero), y: y, width: max(160, rightWidth.rounded(.toNearestOrAwayFromZero)), height: height)
+        ]
     }
 
     private func shouldUseBrowserTabPair(for definition: BrowserTabSnapDefinition, side: SnapSide) -> Bool {
@@ -2663,7 +3146,7 @@ final class ScreenShortcutController: ObservableObject {
             sourceFrame: sourceTarget.frame,
             sourceScreenFrame: sourceTarget.screenFrame,
             firstCreatedNewWindow: createdNewWindow,
-            expiresAt: Date().addingTimeInterval(0.5)
+            expiresAt: Date().addingTimeInterval(0.85)
         )
     }
 
@@ -2676,12 +3159,62 @@ final class ScreenShortcutController: ObservableObject {
         let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
 
         if error != nil {
-            log("YouTube theater check failed for \(definition.appName)")
+            let fallback = clickYouTubeTheaterButtonViaAccessibility(appName: definition.appName)
+            if fallback == "clicked" {
+                log("pressed YouTube theater mode via accessibility for \(definition.appName)")
+            } else {
+                log("YouTube theater check failed for \(definition.appName), fallback \(fallback)")
+            }
         } else if output == "theater" {
             log("pressed YouTube theater mode for \(definition.appName)")
         } else if output == "already-theater" {
             log("YouTube theater mode already active for \(definition.appName)")
+        } else if output == "no-button" {
+            let fallback = clickYouTubeTheaterButtonViaAccessibility(appName: definition.appName)
+            log("YouTube theater button fallback for \(definition.appName): \(fallback)")
         }
+    }
+
+    private func forceYouTubeTheaterModeWithRetries(in definition: BrowserTabSnapDefinition, windowID: String? = nil) {
+        let delays: [TimeInterval] = [0.25, 0.65, 1.15, 1.8]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self else { return }
+                if let windowID {
+                    _ = self.focusBrowserWindow(definition, windowID: windowID)
+                }
+                self.pressTheaterModeIfYouTube(in: definition)
+            }
+        }
+    }
+
+    private func clickYouTubeTheaterButtonViaAccessibility(appName: String) -> String {
+        let script = """
+        tell application "System Events"
+            tell process "\(appName)"
+                set foundButton to missing value
+                set allElements to entire contents of front window
+                repeat with candidateElement in allElements
+                    try
+                        if role of candidateElement is "AXButton" then
+                            set buttonName to name of candidateElement as text
+                            set buttonDescription to description of candidateElement as text
+                            if buttonName contains "Theater mode" or buttonDescription contains "Theater mode" then
+                                set foundButton to candidateElement
+                                exit repeat
+                            end if
+                        end if
+                    end try
+                end repeat
+                if foundButton is missing value then return "missing"
+                click foundButton
+                return "clicked"
+            end tell
+        end tell
+        """
+
+        var error: NSDictionary?
+        return NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? "failed"
     }
 
     private func runBrowserTabSnapScript(_ definition: BrowserTabSnapDefinition) -> (success: Bool, message: String, snapDelay: TimeInterval, sourceWindowID: String?, targetWindowID: String?, createdNewWindow: Bool) {
@@ -2800,9 +3333,9 @@ final class ScreenShortcutController: ObservableObject {
     private func chromeStyleFocusWindowScript(appName: String, windowID: String) -> String {
         """
         tell application "\(appName)"
-            set targetID to \(windowID)
+            set targetID to "\(windowID)"
             repeat with browserWindow in windows
-                if id of browserWindow is targetID then
+                if (id of browserWindow as text) is targetID then
                     set index of browserWindow to 1
                     activate
                     return "focused"
@@ -2812,6 +3345,40 @@ final class ScreenShortcutController: ObservableObject {
             return "missing-window"
         end tell
         """
+    }
+
+    private func setChromeWindowBounds(windowID: String, frame: CGRect) -> Bool {
+        let left = Int(frame.minX.rounded(.toNearestOrAwayFromZero))
+        let top = Int(frame.minY.rounded(.toNearestOrAwayFromZero))
+        let right = Int(frame.maxX.rounded(.toNearestOrAwayFromZero))
+        let bottom = Int(frame.maxY.rounded(.toNearestOrAwayFromZero))
+
+        let script = """
+        tell application id "com.google.Chrome"
+            set targetID to "\(windowID)"
+            repeat with browserWindow in windows
+                if (id of browserWindow as text) is targetID then
+                    set bounds of browserWindow to {\(left), \(top), \(right), \(bottom)}
+                    set index of browserWindow to 1
+                    activate
+                    return "snapped"
+                end if
+            end repeat
+            return "missing-window"
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output == "snapped" {
+            activeSnapTarget = nil
+            activeSnapTargetUntil = Date.distantPast
+            log("browser tab fixed half snap \(windowID) \(frame)")
+            return true
+        }
+
+        log("browser tab fixed half snap failed \(error?.description ?? output)")
+        return false
     }
 
     private func safariBrowserTabSnapScript() -> String {
@@ -2840,9 +3407,9 @@ final class ScreenShortcutController: ObservableObject {
     private func safariFocusWindowScript(windowID: String) -> String {
         """
         tell application "Safari"
-            set targetID to \(windowID)
+            set targetID to "\(windowID)"
             repeat with browserWindow in windows
-                if id of browserWindow is targetID then
+                if (id of browserWindow as text) is targetID then
                     set index of browserWindow to 1
                     activate
                     return "focused"
@@ -2860,17 +3427,8 @@ final class ScreenShortcutController: ObservableObject {
             if not (exists front window) then return "no-window"
             set tabURL to URL of active tab of front window
             if tabURL does not contain "youtube.com/watch" and tabURL does not contain "youtu.be/" then return "not-youtube"
-            try
-                set theaterModeActive to execute active tab of front window javascript "(() => { const flexy = document.querySelector('ytd-watch-flexy'); return !!(flexy && (flexy.hasAttribute('theater') || flexy.hasAttribute('theater-requested_'))); })();"
-                if theaterModeActive is true or theaterModeActive is "true" then return "already-theater"
-            end try
-            activate
+            return execute active tab of front window javascript "(() => { const flexy = document.querySelector('ytd-watch-flexy'); const theater = !!(flexy && (flexy.hasAttribute('theater') || flexy.hasAttribute('theater-requested_'))); const button = document.querySelector('.ytp-size-button'); const label = ((button && (button.getAttribute('title') || button.getAttribute('aria-label'))) || '').toLowerCase(); if (theater || label.includes('default view')) return 'already-theater'; if (!button) return 'no-button'; button.click(); return 'theater'; })();"
         end tell
-        delay 0.05
-        tell application "System Events"
-            key code 17
-        end tell
-        return "theater"
         """
     }
 
@@ -2880,17 +3438,8 @@ final class ScreenShortcutController: ObservableObject {
             if not (exists front window) then return "no-window"
             set tabURL to URL of current tab of front window
             if tabURL does not contain "youtube.com/watch" and tabURL does not contain "youtu.be/" then return "not-youtube"
-            try
-                set theaterModeActive to do JavaScript "(() => { const flexy = document.querySelector('ytd-watch-flexy'); return !!(flexy && (flexy.hasAttribute('theater') || flexy.hasAttribute('theater-requested_'))); })();" in current tab of front window
-                if theaterModeActive is true or theaterModeActive is "true" then return "already-theater"
-            end try
-            activate
+            return do JavaScript "(() => { const flexy = document.querySelector('ytd-watch-flexy'); const theater = !!(flexy && (flexy.hasAttribute('theater') || flexy.hasAttribute('theater-requested_'))); const button = document.querySelector('.ytp-size-button'); const label = ((button && (button.getAttribute('title') || button.getAttribute('aria-label'))) || '').toLowerCase(); if (theater || label.includes('default view')) return 'already-theater'; if (!button) return 'no-button'; button.click(); return 'theater'; })();" in current tab of front window
         end tell
-        delay 0.05
-        tell application "System Events"
-            key code 17
-        end tell
-        return "theater"
         """
     }
 
@@ -3053,7 +3602,7 @@ final class ScreenShortcutController: ObservableObject {
             frame: axFrame,
             screenFrame: accessibilityScreenFrame(for: screen),
             usesAccessibilityCoordinates: true,
-            snapKey: "\(windowInfo.processIdentifier)"
+            snapKey: "\(windowInfo.processIdentifier)-\(windowInfo.windowNumber)"
         )
     }
 
@@ -3106,7 +3655,7 @@ final class ScreenShortcutController: ObservableObject {
             && abs(lhs.height - rhs.height) <= 16
     }
 
-    private func snappingFrame(for currentFrame: CGRect, in screenFrame: CGRect, side: SnapSide, usesAccessibilityCoordinates: Bool, snapKey: String? = nil) -> CGRect {
+    private func snappingFrame(for currentFrame: CGRect, in screenFrame: CGRect, side: SnapSide, usesAccessibilityCoordinates: Bool, snapKey: String? = nil, cyclesHorizontalSizes: Bool = true) -> CGRect {
         if side == .up {
             if let snapKey {
                 downSnapLevels.removeValue(forKey: snapKey)
@@ -3157,7 +3706,9 @@ final class ScreenShortcutController: ObservableObject {
         }
 
         let targetFraction: CGFloat
-        if let snapKey {
+        if !cyclesHorizontalSizes {
+            targetFraction = fractions[0]
+        } else if let snapKey {
             let sideKey = horizontalSnapKey(snapKey: snapKey, side: side)
             let oppositeKey = horizontalSnapKey(snapKey: snapKey, side: side == .left ? .right : .left)
             horizontalSnapLevels.removeValue(forKey: oppositeKey)
@@ -3359,7 +3910,17 @@ final class ScreenShortcutController: ObservableObject {
                             usesAccessibilityCoordinates: usesAccessibilityCoordinates
                         )
                     }
-                    self.snapAnimationTokens.removeValue(forKey: snapKey)
+                    if side == .up {
+                        self.reassertFullScreenSnap(
+                            window,
+                            targetFrame: targetFrame,
+                            usesAccessibilityCoordinates: usesAccessibilityCoordinates,
+                            snapKey: snapKey,
+                            token: token
+                        )
+                    } else {
+                        self.snapAnimationTokens.removeValue(forKey: snapKey)
+                    }
                 }
             }
         }
@@ -3375,13 +3936,21 @@ final class ScreenShortcutController: ObservableObject {
         from currentFrame: CGRect,
         to targetFrame: CGRect,
         side: SnapSide,
-        screenFrame: CGRect
+        screenFrame: CGRect,
+        snapKey: String
     ) {
+        let token = nextSnapAnimationToken(for: snapKey)
         let frames = steppedFrames(from: currentFrame, to: targetFrame)
 
         for (index, frame) in frames.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.035) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.035) { [weak self] in
+                guard let self, self.snapAnimationTokens[snapKey] == token else { return }
                 Self.setChromeFrontWindowBounds(frame)
+                if index == frames.count - 1, side == .up {
+                    Self.reassertChromeFullScreenBounds(targetFrame, snapKey: snapKey, token: token, controller: self)
+                } else if index == frames.count - 1, side == .down {
+                    self.snapAnimationTokens.removeValue(forKey: snapKey)
+                }
             }
         }
 
@@ -3397,12 +3966,59 @@ final class ScreenShortcutController: ObservableObject {
         )
         let nudgeFrame = CGRect(origin: nudgeOrigin, size: nudgeSize)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(frames.count) * 0.035 + 0.06) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(frames.count) * 0.035 + 0.06) { [weak self] in
+            guard let self, self.snapAnimationTokens[snapKey] == token else { return }
             Self.setChromeFrontWindowBounds(nudgeFrame)
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + Double(frames.count) * 0.035 + 0.16) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(frames.count) * 0.035 + 0.16) { [weak self] in
+            guard let self, self.snapAnimationTokens[snapKey] == token else { return }
             Self.setChromeFrontWindowBounds(targetFrame)
+            self.snapAnimationTokens.removeValue(forKey: snapKey)
+        }
+    }
+
+    private func reassertFullScreenSnap(
+        _ window: AXUIElement,
+        targetFrame: CGRect,
+        usesAccessibilityCoordinates: Bool,
+        snapKey: String,
+        token: Int
+    ) {
+        let delays: [TimeInterval] = [0.08, 0.22]
+        for (index, delay) in delays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.snapAnimationTokens[snapKey] == token else { return }
+                self.setWindow(window, position: targetFrame.origin, size: targetFrame.size)
+                if index == delays.count - 1 {
+                    self.settleSnappedWindow(
+                        window,
+                        targetFrame: targetFrame,
+                        side: .up,
+                        screenFrame: targetFrame,
+                        usesAccessibilityCoordinates: usesAccessibilityCoordinates
+                    )
+                    self.snapAnimationTokens.removeValue(forKey: snapKey)
+                }
+            }
+        }
+    }
+
+    private static func reassertChromeFullScreenBounds(
+        _ targetFrame: CGRect,
+        snapKey: String,
+        token: Int,
+        controller: ScreenShortcutController
+    ) {
+        let delays: [TimeInterval] = [0.08, 0.22]
+        for (index, delay) in delays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak controller] in
+                guard let controller, controller.snapAnimationTokens[snapKey] == token else { return }
+                Self.setChromeFrontWindowBounds(targetFrame)
+                if index == delays.count - 1 {
+                    controller.snapAnimationTokens.removeValue(forKey: snapKey)
+                }
+            }
         }
     }
 

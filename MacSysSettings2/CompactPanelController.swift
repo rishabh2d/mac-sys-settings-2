@@ -357,6 +357,10 @@ private struct CompactSettingsPanelView: View {
                         get: { BluetoothAudioInputPromptStore.isEnabled },
                         set: { BluetoothAudioInputPromptStore.setEnabled($0) }
                     ))
+                    CompactToggleRow(title: "Mic Wi-Fi warning", subtitle: "Warn when speech starts and Wi-Fi is off.", isOn: Binding(
+                        get: { MicNetworkWarningStore.isEnabled },
+                        set: { MicNetworkWarningStore.setEnabled($0) }
+                    ))
                     CompactInfoBlock(title: "Current input", subtitle: "Open the full app for live device selection.", value: "Open app")
                 case .layouts:
                     CompactButtonRow(title: "Apply Coding mode", subtitle: "Arrange running apps using your saved Coding preset.", value: "Apply") {
