@@ -125,12 +125,12 @@ final class MenuBarController: NSObject {
 
         batteryItem = item
         refreshBatteryItem()
-        batteryTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        batteryTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshBatteryItem()
             }
         }
-        batteryTimer?.tolerance = 0.2
+        batteryTimer?.tolerance = 0.5
         batteryPowerObserver = NotificationCenter.default.addObserver(
             forName: Notification.Name.NSProcessInfoPowerStateDidChange,
             object: nil,
