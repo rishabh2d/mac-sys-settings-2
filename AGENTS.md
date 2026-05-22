@@ -2,7 +2,7 @@
 
 Read this before changing Mac Sys Settings 2.
 
-Before testing any change, read `AGENT_TESTING.md`. In this project, "test" means build, run the fresh app, verify real behavior, fix, rebuild, and repeat until success or a concrete macOS blocker.
+Before testing any change, read `AGENT_TESTING.md`. In this project, "test" means build, run the fresh app only when needed for the requested verification, verify real behavior, fix, rebuild, and repeat until success or a concrete macOS blocker.
 
 If you are helping a new friend download or join the project, read `FRIEND_ONBOARDING.md` before you speak to them. Use its greeting and keep the first explanation short, warm, and non-technical.
 
@@ -73,6 +73,8 @@ When implementing the list:
 6. Final report should say which settings passed, which macOS blocked, and what remains.
 
 ## Build
+
+Use build-only by default. Do not kill, reinstall, or reopen the app after every successful build, because relaunching Mac Sys Settings 2 refreshes menu bar items and makes the user's whole menu bar flicker away and back. Only reinstall/reopen when the user asks to see the live app, when testing requires the fresh runtime, or when the current running app is stale and you explicitly say you are relaunching it.
 
 ```sh
 xcodebuild -project 'Mac Sys Settings 2.xcodeproj' \

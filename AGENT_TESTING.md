@@ -7,7 +7,7 @@ When the user says "test it", "test them", "retest", or "test and fix", treat it
 Testing means:
 
 1. Build the app.
-2. Install or launch the fresh build that the user will actually use.
+2. Install or launch the fresh build only when the requested test needs the running app to change.
 3. Verify the feature in the real macOS UI or with real macOS automation.
 4. Check the actual resulting state, not just whether a command returned.
 5. If it fails, fix the issue.
@@ -15,6 +15,10 @@ Testing means:
 7. Repeat until it works, or until there is one concrete macOS/app-permission blocker.
 
 Do not stop after the first failed test unless macOS is blocking the feature and the blocker is specific.
+
+## Relaunch Discipline
+
+Do not kill, reinstall, or reopen Mac Sys Settings 2 after a build unless the test requires it or the user asks. Relaunching the app refreshes its menu bar items and can make the user's full menu bar disappear and come back. If a relaunch is needed, say so before doing it.
 
 ## Permission Dialogs
 
