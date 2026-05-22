@@ -11,6 +11,31 @@ import Foundation
 struct AudioInputDevice: Identifiable, Equatable {
     let id: AudioObjectID
     let name: String
+    let transport: AudioInputTransport
+
+    var isBluetoothAudio: Bool {
+        transport == .bluetooth || name.localizedCaseInsensitiveContains("airpods")
+    }
+}
+
+enum AudioInputTransport: Equatable {
+    case builtIn
+    case bluetooth
+    case usb
+    case aggregate
+    case virtual
+    case other(UInt32)
+
+    var label: String {
+        switch self {
+        case .builtIn: return "Built-in"
+        case .bluetooth: return "Bluetooth"
+        case .usb: return "USB"
+        case .aggregate: return "Aggregate"
+        case .virtual: return "Virtual"
+        case .other: return "Other"
+        }
+    }
 }
 
 enum AudioInputStore {
@@ -35,7 +60,7 @@ enum AudioInputStore {
 
         return ids.compactMap { id in
             guard hasInputStreams(deviceID: id), let name = deviceName(deviceID: id) else { return nil }
-            return AudioInputDevice(id: id, name: name)
+            return AudioInputDevice(id: id, name: name, transport: transportType(deviceID: id))
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -54,7 +79,7 @@ enum AudioInputStore {
             return nil
         }
 
-        return AudioInputDevice(id: deviceID, name: name)
+        return AudioInputDevice(id: deviceID, name: name, transport: transportType(deviceID: deviceID))
     }
 
     @discardableResult
@@ -94,5 +119,34 @@ enum AudioInputStore {
 
         let trimmed = (name as String).trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func transportType(deviceID: AudioObjectID) -> AudioInputTransport {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport = UInt32(0)
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &transport) == noErr else {
+            return .other(0)
+        }
+
+        switch transport {
+        case kAudioDeviceTransportTypeBuiltIn:
+            return .builtIn
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE:
+            return .bluetooth
+        case kAudioDeviceTransportTypeUSB:
+            return .usb
+        case kAudioDeviceTransportTypeAggregate:
+            return .aggregate
+        case kAudioDeviceTransportTypeVirtual:
+            return .virtual
+        default:
+            return .other(transport)
+        }
     }
 }

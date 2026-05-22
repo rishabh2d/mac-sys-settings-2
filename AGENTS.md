@@ -2,9 +2,15 @@
 
 Read this before changing Mac Sys Settings 2.
 
+Before testing any change, read `AGENT_TESTING.md`. In this project, "test" means build, run the fresh app only when needed for the requested verification, verify real behavior, fix, rebuild, and repeat until success or a concrete macOS blocker.
+
 If you are helping a new friend download or join the project, read `FRIEND_ONBOARDING.md` before you speak to them. Use its greeting and keep the first explanation short, warm, and non-technical.
 
+If the user asks for the greeting message, read `GREETING_MESSAGE.md` and use that copy. Keep it scoped to Mac Sys Settings 2 only.
+
 If a user asks how to tell friends about the project, read `SHARE_WITH_FRIENDS.md` and give them the copy-paste message from that file.
+
+If the user discusses several possible settings and says to add them to the task list, use `SETTINGS_TASK_LIST.md`. Add each idea there first instead of implementing immediately. When the user later asks to do the list, implement the listed items as a batch, test them one by one, and report only the final concise summary unless there is a password, permission, or macOS-blocker.
 
 ## Project
 
@@ -12,8 +18,10 @@ If a user asks how to tell friends about the project, read `SHARE_WITH_FRIENDS.m
 - Main UI: `MacSysSettings2/ContentView.swift`
 - Global screen shortcuts: `MacSysSettings2/ScreenShortcutController.swift`
 - Login item support: `MacSysSettings2/LoginItemStore.swift`
+- Dock reveal/minimize support: `MacSysSettings2/DockRevealStore.swift`, `MacSysSettings2/DockMinimizeAnimationStore.swift`
 - Mic input support: `MacSysSettings2/AudioInputStore.swift`
 - Window layout presets: `MacSysSettings2/WindowLayoutStore.swift`
+- Fullscreen escape shortcut: `MacSysSettings2/FullscreenEscapeController.swift`
 
 ## Product Rules
 
@@ -26,10 +34,10 @@ If a user asks how to tell friends about the project, read `SHARE_WITH_FRIENDS.m
 
 ## Current Pages
 
-- App Settings: login item, Accessibility permission, app state.
-- Screen: move active app between monitors, shortcut recorder, Control-arrow window sizing, macOS Spaces shortcut toggle.
+- App Settings: login item, Accessibility permission, app state, Dock reveal/minimize tuning.
+- Screen: move active app between monitors, shortcut recorder, Control-arrow window sizing, macOS Spaces shortcut toggle, fullscreen escape.
 - Mic: list input devices, choose system default mic, prompt when a new mic appears.
-- Layouts: build named presets from app, screen, position, and size rules, then apply them to running apps.
+- Layouts: build named presets from app, screen, position, and size rules, then apply them to running apps or from the menu bar on the display under the mouse.
 
 ## Adding A Setting
 
@@ -41,7 +49,32 @@ If a user asks how to tell friends about the project, read `SHARE_WITH_FRIENDS.m
 6. Open the app and visually inspect the page.
 7. Verify the setting performs the promised action.
 
+## Discussed Settings Task List
+
+Use `SETTINGS_TASK_LIST.md` as the living batch queue for settings ideas. This keeps brainstormed options from getting lost and lets agents implement many small settings together.
+
+When adding to the list:
+
+1. Preserve the user's wording when it matters.
+2. Split each setting into concrete optional steps or toggles.
+3. Write the trigger or shortcut.
+4. Write the expected UI location.
+5. Write the permission needed, if any.
+6. Write the test plan.
+7. Mark status as `Discussed`, `Ready`, `Blocked by macOS`, `Implemented`, or `Tested`.
+
+When implementing the list:
+
+1. Work through items one by one.
+2. Build after the batch, or earlier if the batch touches risky shared shortcut code.
+3. Test each item in isolation.
+4. Restore any windows, apps, tabs, or system state changed during testing.
+5. Do not report every tiny test step to the user. Save the report for the end unless permission/password/steering is needed.
+6. Final report should say which settings passed, which macOS blocked, and what remains.
+
 ## Build
+
+Use build-only by default. Do not kill, reinstall, or reopen the app after every successful build, because relaunching Mac Sys Settings 2 refreshes menu bar items and makes the user's whole menu bar flicker away and back. Only reinstall/reopen when the user asks to see the live app, when testing requires the fresh runtime, or when the current running app is stale and you explicitly say you are relaunching it.
 
 ```sh
 xcodebuild -project 'Mac Sys Settings 2.xcodeproj' \

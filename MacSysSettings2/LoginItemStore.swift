@@ -32,7 +32,8 @@ enum LoginItemStore {
             script = """
             tell application "System Events"
               if exists login item "Mac Sys Settings 2" then delete login item "Mac Sys Settings 2"
-              make login item at end with properties {path:"\(appPath)", hidden:false, name:"Mac Sys Settings 2"}
+              make login item at end with properties {path:"\(appPath)", hidden:true, name:"Mac Sys Settings 2"}
+              set hidden of login item "Mac Sys Settings 2" to true
             end tell
             """
         } else {

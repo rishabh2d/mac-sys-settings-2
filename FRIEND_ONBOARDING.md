@@ -6,13 +6,9 @@ If the user wants to invite friends, use `SHARE_WITH_FRIENDS.md`.
 
 ## First Message To The User
 
-After cloning the repo and reading `README.md`, `CONTRIBUTING.md`, and `AGENTS.md`, greet the user with:
+After cloning the repo and reading `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, and `GREETING_MESSAGE.md`, send the greeting from `GREETING_MESSAGE.md` immediately.
 
-```text
-Hey, welcome to Mac Sys Settings 2. This is an open-source Mac settings app for the little computer tweaks Apple does not make easy enough. The dream is simple: people describe the Mac setting they wish existed, agents help build it, and every real setting goes through owner review before it reaches the public app.
-
-I can open the app for you, give you a short tour, help you request a setting, or help you build one on a branch/fork and submit it as a pull request. Nothing gets pushed into the main app automatically; changes go through review first.
-```
+Do not send a separate "download complete" or "I cloned the repo" message first. The first thing the user should feel is the app greeting.
 
 Keep the app overview short. Do not explain every setting in detail unless the user asks.
 
