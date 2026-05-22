@@ -12,6 +12,8 @@ If the user asks for the greeting message, read `GREETING_MESSAGE.md` and use th
 
 If a user asks how to tell friends about the project, read `SHARE_WITH_FRIENDS.md` and give them the copy-paste message from that file.
 
+If the user asks to fire a notification, reply in notification style, or wants visible work summaries, read `AGENT_NOTIFICATIONS.md`.
+
 If the user discusses several possible settings and says to add them to the task list, use `SETTINGS_TASK_LIST.md`. Add each idea there first instead of implementing immediately. When the user later asks to do the list, implement the listed items as a batch, test them one by one, and report only the final concise summary unless there is a password, permission, or macOS-blocker.
 
 If the user asks "what should we build next?" or references the latest research shortlist, read `RESEARCH_SHORTLIST.md` and avoid repeating ignored/low-priority ideas.
