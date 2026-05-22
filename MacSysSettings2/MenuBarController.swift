@@ -116,7 +116,7 @@ final class MenuBarController: NSObject {
         item.isVisible = true
         if let button = item.button {
             button.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
-            button.toolTip = "Battery remaining | used today"
+            button.toolTip = "Battery remaining | used this week"
             button.target = self
             button.action = #selector(showBatteryStats)
         }
@@ -155,9 +155,9 @@ final class MenuBarController: NSObject {
             remaining = "\(snapshot.remainingPercent)%"
         }
 
-        let used = snapshot.isCharging ? "\(snapshot.usedTodayPercent)🔋" : "\(snapshot.usedTodayPercent)%"
+        let used = snapshot.isCharging ? "\(snapshot.usedWeekPercent)🔋" : "\(snapshot.usedWeekPercent)%"
         button.title = "\(remaining) | \(used)"
-        button.toolTip = snapshot.isCharging ? "Charging. Remaining | used today" : "Battery remaining | used today"
+        button.toolTip = snapshot.isCharging ? "Charging. Remaining | used this week" : "Battery remaining | used this week"
     }
 
     @objc private func showBatteryStats() {
@@ -170,7 +170,7 @@ final class MenuBarController: NSObject {
         }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 230),
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 250),
             styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -187,7 +187,7 @@ final class MenuBarController: NSObject {
            let window = button.window {
             let buttonFrame = button.convert(button.bounds, to: nil)
             let screenFrame = window.convertToScreen(buttonFrame)
-            panel.setFrameOrigin(NSPoint(x: screenFrame.midX - 130, y: screenFrame.minY - 238))
+            panel.setFrameOrigin(NSPoint(x: screenFrame.midX - 130, y: screenFrame.minY - 258))
         } else if let screen = NSScreen.main {
             panel.center()
             let frame = screen.visibleFrame
@@ -206,7 +206,8 @@ private struct BatteryStatsPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Battery Used")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 23, weight: .semibold))
+                .padding(.top, 8)
 
             VStack(spacing: 10) {
                 BatteryStatRow(title: "Today", value: snapshot.usedTodayPercent)
@@ -215,13 +216,16 @@ private struct BatteryStatsPanelView: View {
                 BatteryStatRow(title: "This year", value: snapshot.usedYearPercent)
             }
 
-            Text("Left menu bar number is remaining. Right number is total battery-percent-equivalent used.")
+            Divider()
+                .padding(.top, 2)
+
+            Text("Left menu bar number is remaining. Right number is total battery-percent-equivalent used this week.")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
-        .frame(width: 260, height: 230)
+        .frame(width: 260, height: 250)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
@@ -238,8 +242,8 @@ private struct BatteryStatRow: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary.opacity(0.82))
             Spacer()
             Text("\(value)%")
                 .font(.system(size: 18, weight: .bold, design: .rounded))
