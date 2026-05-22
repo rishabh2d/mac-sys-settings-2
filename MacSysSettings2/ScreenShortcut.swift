@@ -28,7 +28,7 @@ struct ScreenShortcut: Equatable {
     }
 
     var isUsable: Bool {
-        parts.count >= 2 && parts.count <= 3 && carbonModifiers != 0
+        parts.count >= 1 && parts.count <= 4
     }
 
     static func current() -> ScreenShortcut {
@@ -100,11 +100,32 @@ struct ScreenShortcut: Equatable {
             carbonModifiers |= UInt32(cmdKey)
         }
 
-        guard parts.count == 1 || parts.count == 2 else { return nil }
+        guard parts.count <= 3 else { return nil }
         guard let keyName = keyName(for: event) else { return nil }
 
         parts.append(keyName)
         return ScreenShortcut(keyCode: UInt32(event.keyCode), carbonModifiers: carbonModifiers, parts: parts)
+    }
+
+    static func from(dictionary: [String: Any]?, fallback: ScreenShortcut) -> ScreenShortcut {
+        guard let dictionary,
+              let keyCode = dictionary["keyCode"] as? Int,
+              let modifiers = dictionary["carbonModifiers"] as? Int,
+              let parts = dictionary["parts"] as? [String],
+              !parts.isEmpty,
+              parts.count <= 4 else {
+            return fallback
+        }
+
+        return ScreenShortcut(keyCode: UInt32(keyCode), carbonModifiers: UInt32(modifiers), parts: parts)
+    }
+
+    func dictionaryValue() -> [String: Any] {
+        [
+            "keyCode": Int(keyCode),
+            "carbonModifiers": Int(carbonModifiers),
+            "parts": parts
+        ]
     }
 
     private static func keyName(for event: NSEvent) -> String? {
@@ -119,6 +140,18 @@ struct ScreenShortcut: Equatable {
         case kVK_Escape: return "Esc"
         case kVK_Delete: return "Delete"
         case kVK_ForwardDelete: return "Forward Delete"
+        case kVK_F1: return "F1"
+        case kVK_F2: return "F2"
+        case kVK_F3: return "F3"
+        case kVK_F4: return "F4"
+        case kVK_F5: return "F5"
+        case kVK_F6: return "F6"
+        case kVK_F7: return "F7"
+        case kVK_F8: return "F8"
+        case kVK_F9: return "F9"
+        case kVK_F10: return "F10"
+        case kVK_F11: return "F11"
+        case kVK_F12: return "F12"
         case kVK_LeftArrow: return "Left"
         case kVK_RightArrow: return "Right"
         case kVK_UpArrow: return "Up"
