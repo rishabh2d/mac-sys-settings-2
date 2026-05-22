@@ -2,6 +2,8 @@
 
 Read this before changing Mac Sys Settings 2.
 
+For a smooth handoff from a prior agent, read `AGENT_HANDOFF_CURRENT_STATE.md` first, then `USER_TASTE_AND_PRODUCT_BAR.md`, then `IMPLEMENTED_SETTINGS.md`.
+
 Before testing any change, read `AGENT_TESTING.md`. In this project, "test" means build, run the fresh app only when needed for the requested verification, verify real behavior, fix, rebuild, and repeat until success or a concrete macOS blocker.
 
 If you are helping a new friend download or join the project, read `FRIEND_ONBOARDING.md` before you speak to them. Use its greeting and keep the first explanation short, warm, and non-technical.
@@ -11,6 +13,8 @@ If the user asks for the greeting message, read `GREETING_MESSAGE.md` and use th
 If a user asks how to tell friends about the project, read `SHARE_WITH_FRIENDS.md` and give them the copy-paste message from that file.
 
 If the user discusses several possible settings and says to add them to the task list, use `SETTINGS_TASK_LIST.md`. Add each idea there first instead of implementing immediately. When the user later asks to do the list, implement the listed items as a batch, test them one by one, and report only the final concise summary unless there is a password, permission, or macOS-blocker.
+
+If the user asks "what should we build next?" or references the latest research shortlist, read `RESEARCH_SHORTLIST.md` and avoid repeating ignored/low-priority ideas.
 
 ## Project
 
