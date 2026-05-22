@@ -17,6 +17,8 @@ final class MenuBarController: NSObject {
     private var batteryTimer: Timer?
     private var batteryPowerObserver: NSObjectProtocol?
     private var batteryStatsPanel: NSPanel?
+    private var batteryStatsLocalMonitor: Any?
+    private var batteryStatsGlobalMonitor: Any?
     private var menuModes: [WindowMode] = []
     private let modeChooserPresenter = ModeChooserPresenter()
 
@@ -160,12 +162,58 @@ final class MenuBarController: NSObject {
         button.toolTip = snapshot.isCharging ? "Charging. Remaining | used this week" : "Battery remaining | used this week"
     }
 
+    private func closeBatteryStats() {
+        batteryStatsPanel?.orderOut(nil)
+        batteryStatsPanel = nil
+        removeBatteryStatsClickMonitors()
+    }
+
+    private func installBatteryStatsClickMonitors() {
+        removeBatteryStatsClickMonitors()
+
+        batteryStatsLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            if self.batteryStatsPanelContains(event: event) {
+                return event
+            }
+            self.closeBatteryStats()
+            return event
+        }
+
+        batteryStatsGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                self?.closeBatteryStats()
+            }
+        }
+    }
+
+    private func removeBatteryStatsClickMonitors() {
+        if let monitor = batteryStatsLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            batteryStatsLocalMonitor = nil
+        }
+
+        if let monitor = batteryStatsGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            batteryStatsGlobalMonitor = nil
+        }
+    }
+
+    private func batteryStatsPanelContains(event: NSEvent) -> Bool {
+        guard let panel = batteryStatsPanel,
+              event.window === panel else {
+            return false
+        }
+
+        let point = event.locationInWindow
+        return panel.contentView?.bounds.contains(point) ?? false
+    }
+
     @objc private func showBatteryStats() {
         guard let snapshot = BatteryUsageTracker.updateAndRead() else { return }
 
-        if let panel = batteryStatsPanel {
-            panel.orderOut(nil)
-            batteryStatsPanel = nil
+        if batteryStatsPanel != nil {
+            closeBatteryStats()
             return
         }
 
@@ -195,6 +243,7 @@ final class MenuBarController: NSObject {
         }
 
         batteryStatsPanel = panel
+        installBatteryStatsClickMonitors()
         panel.orderFrontRegardless()
     }
 
