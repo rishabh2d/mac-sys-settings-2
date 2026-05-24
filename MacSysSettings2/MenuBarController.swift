@@ -305,6 +305,7 @@ private struct BatteryStatRow: View {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let micNetworkWarningController = MicNetworkWarningController.shared
     private let screenShortcutController = ScreenShortcutController.shared
+    private let bluetoothSleepController = BluetoothSleepController.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in
@@ -314,6 +315,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FileShelfController.shared.start()
             Desktop2Controller.shared.startIfNeeded()
             micNetworkWarningController.start()
+            bluetoothSleepController.start()
+            SettingsChangeHistoryController.shared.start()
+            AppAppearanceExceptionStore.applyAllExceptions()
+            AppAppearanceExceptionStore.applyNotesLightBackgroundIfEnabled()
             LoginItemStore.setEnabled(true, rememberChoice: false)
             if CommandLine.arguments.contains("--show-compact") {
                 showCompactPanelForLaunchPreview()
