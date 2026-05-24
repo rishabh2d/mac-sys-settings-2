@@ -49,6 +49,7 @@ This is the current inventory of real Mac Sys Settings 2 features. Keep it updat
 - Cursor jump overlay: shortcut opens monitor/keypad chooser and moves cursor to a chosen screen point.
 - Cursor locator ring: Command-Shift-L shows a glowing ring around the current cursor, and Cursor Jump can fire the same ring after landing.
 - Hover to focus: focus follows hovered windows without clicking.
+- Pin FaceTime: Control-Option-P toggles the focused window above normal windows until pressed again or unpinned. Built for FaceTime, but works for any focused window.
 - Auto key press: Control-Option-Command-K opens a key/interval setup dialog when needed, starts repeating the chosen key every selected number of seconds, and stops on the same shortcut.
 - Audio tab jump: Control-Option-Command-P finds the Chrome/Safari tab marked as playing audio and focuses it.
 

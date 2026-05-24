@@ -380,6 +380,7 @@ private struct SetupCostSettingsDetailView: View {
                         settingNames: [
                             "Move active app between monitors",
                             "Control-Arrow window sizing",
+                            "Pin FaceTime",
                             "Command-H focused-window hide",
                             "Command-Shift-H current monitor hide",
                             "Window Switcher",
@@ -2252,6 +2253,7 @@ private struct WallpaperSettingsDetailView: View {
 }
 
 private struct ScreenSettingsDetailView: View {
+    @ObservedObject private var pinWindowController = PinWindowController.shared
     @State private var shortcut = ScreenShortcut.current()
     @State private var spaceSwitchingEnabled = SpaceSwitchShortcutStore.isEnabled
     @State private var controlArrowSnapEnabled = ControlArrowSnapStore.isEnabled
@@ -2275,6 +2277,7 @@ private struct ScreenSettingsDetailView: View {
     @State private var autoKeyPressInterval = AutoKeyPressStore.interval
     @State private var audioTabJumpEnabled = AudioTabJumpStore.isEnabled
     @State private var audioTabJumpShortcut = AudioTabJumpStore.shortcut
+    @State private var pinWindowEnabled = PinWindowStore.isEnabled
     @State private var fullscreenEscapeEnabled = FullscreenEscapeStore.isEnabled
     @State private var cursorJumpEnabled = CursorJumpStore.isEnabled
     @State private var cursorJumpShortcut = CursorJumpStore.currentShortcut()
@@ -2475,6 +2478,49 @@ private struct ScreenSettingsDetailView: View {
                         subtitle: "This avoids play/pause buttons and links; apps that require a click for caret placement still need one click.",
                         value: hoverFocusEnabled ? "On" : "Off"
                     )
+                }
+            }
+
+            SettingsSectionBlock(
+                title: "Pin FaceTime",
+                subtitle: "Built for FaceTime, but it works for any focused window."
+            ) {
+                SettingsGroup {
+                    SettingsToggleRow(
+                        title: "\(PinWindowStore.shortcut.displayText) pins FaceTime",
+                        subtitle: "Press Control-Option-P to keep FaceTime floating above normal windows. This works for any focused window, not just FaceTime."
+                    ) {
+                        Toggle("", isOn: $pinWindowEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .onChange(of: pinWindowEnabled) { _, newValue in
+                                PinWindowStore.setEnabled(newValue)
+                            }
+                    }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    SettingsActionRow(
+                        title: "Pin or unpin now",
+                        subtitle: "Uses the same focused-window action as the shortcut.",
+                        value: pinWindowController.lastStatus,
+                        buttonTitle: "Toggle"
+                    ) {
+                        pinWindowController.toggleFocusedWindow()
+                    }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    SettingsActionRow(
+                        title: "Unpin all windows",
+                        subtitle: "Restores every window pinned by Mac Sys Settings 2 back to normal level.",
+                        value: pinWindowController.pinnedCount == 0 ? "None" : "\(pinWindowController.pinnedCount) pinned",
+                        buttonTitle: "Unpin"
+                    ) {
+                        pinWindowController.unpinAll()
+                    }
                 }
             }
 
@@ -2822,6 +2868,7 @@ private struct ScreenSettingsDetailView: View {
                     StatusItem(title: "Monitor Move", value: monitorMoveShortcutEnabled ? "On" : "Off", state: monitorMoveShortcutEnabled ? .good : .warning),
                     StatusItem(title: "Move Others", value: monitorMoveOthersShortcutEnabled ? "On" : "Off", state: monitorMoveOthersShortcutEnabled ? .good : .warning),
                     StatusItem(title: "Hover Focus", value: hoverFocusEnabled ? "On" : "Off", state: hoverFocusEnabled ? .good : .warning),
+                    StatusItem(title: "Pin FaceTime", value: pinWindowEnabled ? (pinWindowController.pinnedCount == 0 ? "Ready" : "\(pinWindowController.pinnedCount)") : "Off", state: pinWindowEnabled ? .good : .warning),
                     StatusItem(title: "Cursor Jump", value: cursorJumpEnabled ? "On" : "Off", state: cursorJumpEnabled ? .good : .warning),
                     StatusItem(title: "Locator", value: cursorLocatorEnabled ? "On" : "Off", state: cursorLocatorEnabled ? .good : .warning),
                     StatusItem(title: "Fullscreen Escape", value: fullscreenEscapeEnabled ? "On" : "Off", state: fullscreenEscapeEnabled ? .good : .warning),
@@ -2841,6 +2888,9 @@ private struct ScreenSettingsDetailView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AudioTabJumpStore.didChangeNotification)) { _ in
             refreshAudioTabJumpState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PinWindowStore.didChangeNotification)) { _ in
+            pinWindowEnabled = PinWindowStore.isEnabled
         }
         .onAppear {
             shortcut = ScreenShortcut.current()
@@ -2862,6 +2912,7 @@ private struct ScreenSettingsDetailView: View {
             autoScrollEnabled = AutoScrollStore.isEnabled
             refreshAutoKeyPressState()
             refreshAudioTabJumpState()
+            pinWindowEnabled = PinWindowStore.isEnabled
             fullscreenEscapeEnabled = FullscreenEscapeStore.isEnabled
             cursorJumpEnabled = CursorJumpStore.isEnabled
             cursorJumpShortcut = CursorJumpStore.currentShortcut()
