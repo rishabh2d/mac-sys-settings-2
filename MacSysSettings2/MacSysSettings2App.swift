@@ -20,8 +20,14 @@ struct MacSysSettings2App: App {
     @StateObject private var autoScrollController = AutoScrollController()
     @StateObject private var fullscreenEscapeController = FullscreenEscapeController()
     @StateObject private var bluetoothAudioInputController = BluetoothAudioInputController()
+    @StateObject private var bluetoothSleepController = BluetoothSleepController.shared
     @StateObject private var cursorJumpController = CursorJumpController.shared
     @StateObject private var fileShelfController = FileShelfController.shared
+    @StateObject private var settingsChangeHistoryController = SettingsChangeHistoryController.shared
+    @StateObject private var filePickerDefaultFolderController = FilePickerDefaultFolderController.shared
+    @StateObject private var autoKeyPressController = AutoKeyPressController.shared
+    @StateObject private var audioTabJumpController = AudioTabJumpController.shared
+    @StateObject private var pinWindowController = PinWindowController.shared
 
     var body: some Scene {
         WindowGroup(id: "main") {
@@ -42,8 +48,17 @@ struct MacSysSettings2App: App {
                     autoScrollController.start()
                     fullscreenEscapeController.start()
                     bluetoothAudioInputController.start()
+                    bluetoothSleepController.start()
                     cursorJumpController.start()
                     fileShelfController.start()
+                    settingsChangeHistoryController.start()
+                    filePickerDefaultFolderController.start()
+                    autoKeyPressController.start()
+                    audioTabJumpController.start()
+                    pinWindowController.start()
+                    AppAppearanceExceptionStore.pruneUnsupportedExceptions()
+                    AppAppearanceExceptionStore.applyAllExceptions()
+                    AppAppearanceExceptionStore.applyNotesLightBackgroundIfEnabled()
                 }
         }
     }

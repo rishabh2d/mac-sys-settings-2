@@ -55,71 +55,86 @@ Use this as the user-facing list of settings Rishabh should manually test later.
    - Confirm focus follows the hovered window quickly.
    - Confirm it does not click buttons, play/pause Chrome, or type into the wrong app.
 
-9. File shelf shake trigger
+9. Open/Save folder defaults
+   - In Finder settings, turn on Per-app file picker folders.
+   - Add a rule for Chrome or Safari pointing to a test folder.
+   - In that app, open an upload/open-file picker.
+   - Confirm the picker jumps to the saved folder.
+   - Confirm unrelated apps are not redirected.
+
+10. File shelf shake trigger
    - Select files in Finder.
    - Shake the cursor left/right in a small area.
    - Confirm the shelf opens.
    - Move the cursor quickly across the screen without shaking and confirm the shelf does not open.
    - Leave shelf empty for 10 seconds and confirm it closes.
 
-10. Cursor jump overlay
+11. Cursor jump overlay
    - Press the configured cursor-jump shortcut.
    - Confirm the monitor chooser appears.
    - Choose monitor and keypad point.
    - Confirm cursor lands at the expected screen point.
+   - Confirm a glowing locator ring appears around the cursor after it lands.
 
-11. Control-arrow window sizing on both monitors
+12. Cursor locator ring
+   - Press Command-Shift-L, or the custom locator shortcut if changed.
+   - Confirm a glowing ring appears exactly around the current cursor.
+   - Test on monitor 1 and monitor 2.
+   - Test while Chrome, Notes, Finder, Telegram, and Codex are focused.
+   - Confirm the ring does not steal focus or click anything.
+
+13. Control-arrow window sizing on both monitors
    - Test left/right half, one-third, and two-thirds on monitor 1 and monitor 2.
    - Confirm full-height windows touch top and bottom usable bounds.
    - Confirm full-window state resets the sizing cycle back to half.
 
-12. Chrome/Gmail resize behavior
+14. Chrome/Gmail resize behavior
    - Open Gmail in Chrome.
    - Use Control-arrow sizing.
    - Confirm the browser content reflows like manual resizing, not stuck at old width.
 
-13. Fullscreen Escape
+15. Fullscreen Escape
    - Put two apps into real macOS fullscreen.
    - Press Command-Option-Tab.
    - Confirm it switches between fullscreen windows if macOS exposes them.
    - Restore fullscreen state after testing.
 
-14. Window switcher hot corner
+16. Window switcher hot corner
    - Turn on the optional hot corner trigger.
    - Move the cursor to the bottom-right corner.
    - Confirm the app-specific window switcher appears.
    - Confirm it closes after 3 seconds unless hovered.
 
-15. Finder sort shortcut
+17. Finder sort shortcut
    - Open a Finder folder.
    - Use the sort shortcut.
    - Confirm the chooser applies Date Created or Date Modified sorting.
    - Restore the folder view if needed.
 
-16. Autoscroll overlay
+18. Autoscroll overlay
    - Open a long Chrome page.
    - Use the autoscroll shortcut.
    - Test up/down plus slow/medium/fast.
    - Confirm pressing the shortcut again stops scrolling.
 
-17. Command-H focused-window hide
+19. Command-H focused-window hide
    - Focus one browser window while another browser window is visible on another monitor.
    - Press Command-H.
    - Confirm only the focused window hides/minimizes, not every browser window.
    - Press again or restore manually and confirm other monitors were not disturbed.
 
-18. Command-Shift-H hide current monitor
+20. Command-Shift-H hide current monitor
    - Focus one app on a monitor with several apps visible.
    - Press Command-Shift-H.
    - Confirm other apps on that monitor hide and the focused app remains.
    - Press Command-Shift-H again and confirm hidden apps return.
 
-19. Dock instant reveal tuning
+21. Dock instant reveal tuning
    - If Dock autohide is enabled, turn on Dock reveal tuning.
    - Confirm the Dock reveals faster.
    - Use restore defaults and confirm Dock behavior returns.
 
-20. Compact panel one-open rule
+22. Compact panel one-open rule
    - Open compact panel from the sidebar.
    - Press Open and confirm compact panel closes while main app opens.
    - Reopen compact panel and confirm only one compact panel exists.
@@ -130,4 +145,3 @@ Use this as the user-facing list of settings Rishabh should manually test later.
 - Chrome T/W chooser appears from the real Control-Option-Arrow event path.
 - Chrome active tab can be split into its own window and tracked by window ID.
 - Menu bar right-click opens a custom chooser panel window.
-

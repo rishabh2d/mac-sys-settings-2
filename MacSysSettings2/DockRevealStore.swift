@@ -28,7 +28,7 @@ enum DockRevealStore {
         let ok: Bool
         if enabled {
             ok = writeDockNumber(key: delayDefaultsKey, value: "0")
-                && writeDockNumber(key: animationDefaultsKey, value: "0.12")
+                && writeDockNumber(key: animationDefaultsKey, value: "0")
         } else {
             ok = deleteDockKey(delayDefaultsKey)
                 && deleteDockKey(animationDefaultsKey)

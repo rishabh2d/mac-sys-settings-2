@@ -206,6 +206,15 @@ private struct CompactSettingsPanelView: View {
             Spacer()
 
             Button {
+                toggleAppearance()
+            } label: {
+                CompactAppearanceToggleIcon(isDark: isDark)
+            }
+            .buttonStyle(.plain)
+            .help(isDark ? "Switch Mac Sys Settings 2 to light mode" : "Switch Mac Sys Settings 2 to dark mode")
+            .compactHoverHaptic()
+
+            Button {
                 onClose()
                 AppCommandBridge.showMainWindow()
             } label: {
@@ -226,6 +235,12 @@ private struct CompactSettingsPanelView: View {
         .padding(.top, 14)
         .padding(.bottom, 10)
         .background(headerBackground)
+    }
+
+    private func toggleAppearance() {
+        let nextMode: AppAppearanceMode = isDark ? .light : .dark
+        appearance = nextMode
+        AppAppearanceStore.setMode(nextMode)
     }
 
     private var homeGrid: some View {
@@ -254,6 +269,16 @@ private struct CompactSettingsPanelView: View {
         ScrollView {
             VStack(spacing: 10) {
                 switch section {
+                case .setup:
+                    CompactButtonRow(title: "Accessibility", subtitle: "Move monitors, sizing, hide, switcher, hover focus, cursor jump, layouts.", value: AXIsProcessTrusted() ? "Allowed" : "Open") {
+                        SettingsDeepLinks.openAccessibility()
+                    }
+                    CompactButtonRow(title: "Screen Recording", subtitle: "Window switcher thumbnails, browser tabs view, screenshot clipboard mode.", value: CGPreflightScreenCaptureAccess() ? "Allowed" : "Open") {
+                        SettingsDeepLinks.openScreenRecording()
+                    }
+                    CompactButtonRow(title: "Input Monitoring", subtitle: "Option-Tab, Control-Arrow, Command-Option browser snap, autoscroll.", value: "Open") {
+                        SettingsDeepLinks.openInputMonitoring()
+                    }
                 case .favorites:
                     CompactButtonRow(title: "Accessibility", subtitle: AXIsProcessTrusted() ? "Permission is already allowed." : "Open the macOS permission pane.", value: AXIsProcessTrusted() ? "Allowed" : "Open") {
                         SettingsDeepLinks.openAccessibility()
@@ -267,6 +292,21 @@ private struct CompactSettingsPanelView: View {
                     CompactButtonRow(title: "Login Items", subtitle: "Apps that start when your Mac turns on.", value: LoginItemStore.isEnabled ? "App on" : "Open") {
                         SettingsDeepLinks.openLoginItems()
                     }
+                case .weirdModes:
+                    CompactButtonRow(title: "Fix safe weird modes", subtitle: "Release stuck modifiers and reset common accidental Mac modes.", value: "Fix") {
+                        _ = WeirdMacModeStore.fixEverythingSafe()
+                    }
+                    CompactButtonRow(title: "Reset stuck keys", subtitle: "Release stuck Option, Control, Shift, Command, and Fn.", value: "Reset") {
+                        _ = WeirdMacModeStore.fix(.stuckModifiers)
+                    }
+                    CompactButtonRow(title: "Open Accessibility", subtitle: "Check VoiceOver, Zoom, colors, and keyboard access.", value: "Open") {
+                        WeirdMacModeStore.openSettings(for: .voiceOver)
+                    }
+                case .fun:
+                    CompactToggleRow(title: "Slow-mo animations", subtitle: "Hold Shift while minimizing or restoring windows to see the old Mac slow-motion effect.", isOn: Binding(
+                        get: { SlowMotionEffectsStore.isEnabled },
+                        set: { SlowMotionEffectsStore.setEnabled($0) }
+                    ))
                 case .app:
                     CompactAppearancePicker(appearance: $appearance)
                     CompactToggleRow(title: "Open at login", subtitle: "Menu bar icon and shortcuts start with macOS.", isOn: Binding(
@@ -320,11 +360,46 @@ private struct CompactSettingsPanelView: View {
                         get: { ScreenshotClipboardStore.autoClearEnabled },
                         set: { ScreenshotClipboardStore.setAutoClearEnabled($0) }
                     ))
+                case .history:
+                    CompactButtonRow(title: "Check changes", subtitle: "Compare current app and macOS settings against the saved baseline.", value: "\(SettingsChangeHistoryStore.entries().count)") {
+                        _ = SettingsChangeHistoryStore.checkNow()
+                    }
+                    CompactButtonRow(title: "Reset baseline", subtitle: "Mark the current setup as correct so future resets are easy to spot.", value: "Reset") {
+                        SettingsChangeHistoryStore.resetBaseline()
+                    }
+                case .backup:
+                    CompactButtonRow(title: "Export backup", subtitle: "Create a local Desktop backup folder for safe preference groups.", value: SettingsBackupStore.lastStatus) {
+                        _ = SettingsBackupStore.exportBackup()
+                    }
+                    CompactButtonRow(title: "Show last backup", subtitle: SettingsBackupStore.lastBackupPath.isEmpty ? "No backup exported yet." : "Reveal the last backup folder.", value: "Show") {
+                        SettingsBackupStore.revealLastBackup()
+                    }
+                case .workflows:
+                    CompactButtonRow(title: "Start Work", subtitle: "Open the core work apps and apply Coding mode. Notifications stay on.", value: "Run") {
+                        Task { @MainActor in
+                            _ = await WorkflowShortcutStore.run(.startWork)
+                        }
+                    }
+                    CompactButtonRow(title: "Meeting Mode", subtitle: "Open Meet/Zoom/Notes, set volume, and run the optional quiet shortcut.", value: "Run") {
+                        Task { @MainActor in
+                            _ = await WorkflowShortcutStore.run(.meetingMode)
+                        }
+                    }
+                    CompactButtonRow(title: "Save Tonight", subtitle: "Save running apps for Restore Morning.", value: WorkflowShortcutStore.latestSnapshotSummary()) {
+                        Task { @MainActor in
+                            _ = await WorkflowShortcutStore.run(.saveTonight)
+                        }
+                    }
                 case .finder:
                     CompactToggleRow(title: "Sort chooser shortcut", subtitle: "Control-Option-Command-S opens Finder sort choices.", isOn: Binding(
                         get: { FinderSortShortcutStore.isEnabled },
                         set: { FinderSortShortcutStore.setEnabled($0) }
                     ))
+                    CompactToggleRow(title: "Open/Save folder defaults", subtitle: "Jump app file pickers to saved folders.", isOn: Binding(
+                        get: { FilePickerDefaultFolderStore.isEnabled },
+                        set: { FilePickerDefaultFolderStore.setEnabled($0) }
+                    ))
+                    CompactInfoBlock(title: "Saved app rules", subtitle: "Add or remove app-folder rules in the full Finder page.", value: "\(FilePickerDefaultFolderStore.rules().count)")
                 case .shelf:
                     CompactToggleRow(title: "Mouse-flick shelf", subtitle: "Flick mouse or press Command-Option-Shift-Y to park files.", isOn: Binding(
                         get: { FileShelfStore.isEnabled },
@@ -343,10 +418,28 @@ private struct CompactSettingsPanelView: View {
                         get: { CursorJumpStore.isEnabled },
                         set: { CursorJumpStore.setEnabled($0) }
                     ))
+                    CompactToggleRow(title: "Cursor locator", subtitle: "Command-Shift-L shows a glowing ring around the cursor.", isOn: Binding(
+                        get: { CursorJumpStore.locatorEnabled },
+                        set: { CursorJumpStore.setLocatorEnabled($0) }
+                    ))
                     CompactToggleRow(title: "Hover focus", subtitle: "Focus windows when your mouse hovers over them.", isOn: Binding(
                         get: { HoverFocusStore.isEnabled },
                         set: { HoverFocusStore.setEnabled($0) }
                     ))
+                    CompactToggleRow(title: "Auto key press", subtitle: "\(AutoKeyPressStore.shortcut.displayText) repeats a chosen key until pressed again.", isOn: Binding(
+                        get: { AutoKeyPressStore.isEnabled },
+                        set: { AutoKeyPressStore.setEnabled($0) }
+                    ))
+                    CompactButtonRow(title: "Set auto key", subtitle: "Press key, then numpad seconds; it starts right away.", value: AutoKeyPressStore.targetKeyName) {
+                        AutoKeyPressController.shared.configureAndStart()
+                    }
+                    CompactToggleRow(title: "Audio tab jump", subtitle: "\(AudioTabJumpStore.shortcut.displayText) focuses the browser tab playing sound.", isOn: Binding(
+                        get: { AudioTabJumpStore.isEnabled },
+                        set: { AudioTabJumpStore.setEnabled($0) }
+                    ))
+                    CompactButtonRow(title: "Jump to audio", subtitle: "Find the Chrome or Safari tab currently playing sound.", value: "Jump") {
+                        AudioTabJumpController.shared.jumpToPlayingTab()
+                    }
                 case .windowSwitcher:
                     CompactToggleRow(title: "Option-Tab switcher", subtitle: "Switch real windows instead of only apps.", isOn: Binding(
                         get: { WindowSwitcherSettingsStore.enabled },
@@ -356,6 +449,10 @@ private struct CompactSettingsPanelView: View {
                     CompactToggleRow(title: "Bluetooth mic prompt", subtitle: "Show sound input choices when audio devices connect.", isOn: Binding(
                         get: { BluetoothAudioInputPromptStore.isEnabled },
                         set: { BluetoothAudioInputPromptStore.setEnabled($0) }
+                    ))
+                    CompactToggleRow(title: "Bluetooth off during sleep", subtitle: "Stops sleeping Macs from stealing headphones. May affect Apple Watch unlock and Bluetooth wake.", isOn: Binding(
+                        get: { BluetoothSleepStore.isEnabled },
+                        set: { BluetoothSleepStore.setEnabled($0) }
                     ))
                     CompactToggleRow(title: "Mic Wi-Fi warning", subtitle: "Warn when speech starts and Wi-Fi is off.", isOn: Binding(
                         get: { MicNetworkWarningStore.isEnabled },
@@ -563,6 +660,30 @@ private struct CompactAppearancePicker: View {
         }
         .padding(10)
         .background(compactRowBackground)
+    }
+}
+
+private struct CompactAppearanceToggleIcon: View {
+    let isDark: Bool
+    @State private var hovering = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isDark ? Color.white : Color.black)
+            Circle()
+                .trim(from: 0, to: 0.5)
+                .fill(isDark ? Color.black : Color.white)
+                .rotationEffect(.degrees(90))
+            Circle()
+                .strokeBorder(isDark ? Color.white.opacity(0.72) : Color.black.opacity(0.22), lineWidth: 1.2)
+        }
+        .frame(width: 28, height: 28)
+        .shadow(color: Color.black.opacity(hovering ? 0.20 : 0.08), radius: hovering ? 8 : 3, y: 2)
+        .scaleEffect(hovering ? 1.06 : 1)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(isDark ? "Switch to light mode" : "Switch to dark mode")
     }
 }
 
