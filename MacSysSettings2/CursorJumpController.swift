@@ -17,14 +17,18 @@ final class CursorJumpController: ObservableObject {
     @Published private(set) var lastStatus = "\(CursorJumpStore.shortcutText) is ready."
 
     private var hotKeyRef: EventHotKeyRef?
+    private var locatorHotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
     private var eventTap: CFMachPort?
     private var eventTapRunLoopSource: CFRunLoopSource?
     private var observer: NSObjectProtocol?
     private var lastEventTapFire = Date.distantPast
     private let hotKeyID = EventHotKeyID(signature: OSType(0x43524A50), id: 1)
+    private let locatorHotKeyID = EventHotKeyID(signature: OSType(0x43524A50), id: 2)
     private let presenter = CursorJumpOverlayPresenter()
+    private let locatorPresenter = CursorLocatorPresenter.shared
     private var shortcut = CursorJumpStore.currentShortcut()
+    private var locatorShortcut = CursorJumpStore.currentLocatorShortcut()
     private var selectedMonitorNumber: Int?
 
     func start() {
@@ -35,6 +39,9 @@ final class CursorJumpController: ObservableObject {
     deinit {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
+        }
+        if let locatorHotKeyRef {
+            UnregisterEventHotKey(locatorHotKeyRef)
         }
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
@@ -70,33 +77,51 @@ final class CursorJumpController: ObservableObject {
             selectedMonitorNumber = nil
         }
         shortcut = CursorJumpStore.currentShortcut()
+        locatorShortcut = CursorJumpStore.currentLocatorShortcut()
         registerHotKey()
     }
 
     private func registerHotKey() {
-        guard CursorJumpStore.isEnabled, hotKeyRef == nil else { return }
-
         guard ensureEventHandlerInstalled() else {
             lastStatus = "Could not install cursor jump shortcut."
             log("InstallEventHandler failed")
             return
         }
 
-        let status = RegisterEventHotKey(
-            shortcut.keyCode,
-            shortcut.carbonModifiers,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
+        if CursorJumpStore.isEnabled, hotKeyRef == nil {
+            let status = RegisterEventHotKey(
+                shortcut.keyCode,
+                shortcut.carbonModifiers,
+                hotKeyID,
+                GetApplicationEventTarget(),
+                0,
+                &hotKeyRef
+            )
 
-        if status == noErr {
-            lastStatus = "\(CursorJumpStore.shortcutText) is ready."
-            log("cursor jump shortcut registered")
-        } else {
-            lastStatus = "\(CursorJumpStore.shortcutText) could not register."
-            log("RegisterEventHotKey failed \(status)")
+            if status == noErr {
+                lastStatus = "\(CursorJumpStore.shortcutText) is ready."
+                log("cursor jump shortcut registered")
+            } else {
+                lastStatus = "\(CursorJumpStore.shortcutText) could not register."
+                log("RegisterEventHotKey failed \(status)")
+            }
+        }
+
+        if CursorJumpStore.locatorEnabled, locatorHotKeyRef == nil {
+            let status = RegisterEventHotKey(
+                locatorShortcut.keyCode,
+                locatorShortcut.carbonModifiers,
+                locatorHotKeyID,
+                GetApplicationEventTarget(),
+                0,
+                &locatorHotKeyRef
+            )
+
+            if status == noErr {
+                log("cursor locator shortcut registered")
+            } else {
+                log("cursor locator RegisterEventHotKey failed \(status)")
+            }
         }
 
         installEventTapIfNeeded()
@@ -106,6 +131,10 @@ final class CursorJumpController: ObservableObject {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
+        }
+        if let locatorHotKeyRef {
+            UnregisterEventHotKey(locatorHotKeyRef)
+            self.locatorHotKeyRef = nil
         }
         uninstallEventTap()
     }
@@ -224,8 +253,7 @@ final class CursorJumpController: ObservableObject {
                 )
 
                 guard status == noErr,
-                      hotKeyID.signature == OSType(0x43524A50),
-                      hotKeyID.id == 1 else {
+                      hotKeyID.signature == OSType(0x43524A50) else {
                     return noErr
                 }
 
@@ -234,7 +262,14 @@ final class CursorJumpController: ObservableObject {
                     .takeUnretainedValue()
 
                 Task { @MainActor in
-                    controller.showMonitorChooser()
+                    switch hotKeyID.id {
+                    case 1:
+                        controller.showMonitorChooser()
+                    case 2:
+                        controller.showCursorLocator()
+                    default:
+                        break
+                    }
                 }
 
                 return noErr
@@ -255,6 +290,12 @@ final class CursorJumpController: ObservableObject {
         } onCancel: { [weak self] in
             self?.cancel()
         }
+    }
+
+    private func showCursorLocator() {
+        locatorPresenter.show()
+        lastStatus = "Cursor locator shown."
+        log("cursor locator shown")
     }
 
     private func handleMonitorDigit(_ digit: Int) {
@@ -286,6 +327,15 @@ final class CursorJumpController: ObservableObject {
         log("jumped to monitor \(monitorNumber), point \(digit), \(Int(point.x)),\(Int(point.y))")
         presenter.hide()
         selectedMonitorNumber = nil
+        showLocatorAfterJumpIfNeeded()
+    }
+
+    private func showLocatorAfterJumpIfNeeded() {
+        guard CursorJumpStore.locatorAfterJumpEnabled else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 90_000_000)
+            self?.locatorPresenter.show()
+        }
     }
 
     private func cancel() {

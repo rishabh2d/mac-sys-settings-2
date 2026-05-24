@@ -32,6 +32,7 @@ final class ScreenShortcutController: ObservableObject {
     private var commandShiftHideHotKeyRef: EventHotKeyRef?
     private var instantMinimizeHotKeyRef: EventHotKeyRef?
     private var modeChooserHotKeyRef: EventHotKeyRef?
+    private var pinWindowHotKeyRef: EventHotKeyRef?
     private var controlArrowGlobalMonitor: Any?
     private var controlArrowLocalMonitor: Any?
     private var controlArrowEventTap: CFMachPort?
@@ -55,6 +56,7 @@ final class ScreenShortcutController: ObservableObject {
     private let modeChooserHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 7)
     private let commandShiftHideHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 10)
     private let instantMinimizeHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 15)
+    private let pinWindowHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 16)
     private var shortcut = ScreenShortcut.current()
     private var shortcutObserver: NSObjectProtocol?
     private var controlArrowObserver: NSObjectProtocol?
@@ -113,6 +115,7 @@ final class ScreenShortcutController: ObservableObject {
         registerDesktopIconsHotKey()
         registerCommandHideShortcut()
         registerModeChooserHotKey()
+        registerPinWindowHotKey()
     }
 
     deinit {
@@ -196,6 +199,9 @@ final class ScreenShortcutController: ObservableObject {
         }
         if let modeChooserHotKeyRef {
             UnregisterEventHotKey(modeChooserHotKeyRef)
+        }
+        if let pinWindowHotKeyRef {
+            UnregisterEventHotKey(pinWindowHotKeyRef)
         }
         if let controlArrowGlobalMonitor {
             NSEvent.removeMonitor(controlArrowGlobalMonitor)
@@ -380,8 +386,36 @@ final class ScreenShortcutController: ObservableObject {
         case modeChooserHotKeyID.id:
             log("Mode chooser hotkey pressed")
             showModeChooser()
+        case pinWindowHotKeyID.id:
+            log("Control-Option-P pin window hotkey pressed")
+            PinWindowController.shared.toggleFocusedWindow()
         default:
             break
+        }
+    }
+
+    private func registerPinWindowHotKey() {
+        guard PinWindowStore.isEnabled, pinWindowHotKeyRef == nil else { return }
+
+        guard ensureEventHandlerInstalled() else {
+            lastStatus = "Could not install \(PinWindowStore.shortcut.displayText) handler."
+            return
+        }
+
+        let shortcut = PinWindowStore.shortcut
+        let status = RegisterEventHotKey(
+            shortcut.keyCode,
+            shortcut.carbonModifiers,
+            pinWindowHotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &pinWindowHotKeyRef
+        )
+
+        if status == noErr {
+            log("\(shortcut.displayText) pin window hotkey registered")
+        } else {
+            log("Pin window RegisterEventHotKey failed \(status)")
         }
     }
 
@@ -600,7 +634,7 @@ final class ScreenShortcutController: ObservableObject {
     }
 
     private func registerCommandHideEventTap() {
-        guard (CommandHideToggleStore.isEnabled || CommandShiftHideMonitorStore.isEnabled || InstantMinimizeStore.isEnabled), commandHideEventTap == nil else { return }
+        guard (CommandHideToggleStore.isEnabled || CommandShiftHideMonitorStore.isEnabled || InstantMinimizeStore.isEnabled || PinWindowStore.isEnabled), commandHideEventTap == nil else { return }
 
         let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
@@ -621,6 +655,14 @@ final class ScreenShortcutController: ObservableObject {
 
             guard type == .keyDown else {
                 return Unmanaged.passUnretained(event)
+            }
+
+            if controller.isPinWindowEvent(event) {
+                Task { @MainActor in
+                    controller.log("Control-Option-P pin window event tap pressed")
+                    PinWindowController.shared.toggleFocusedWindow()
+                }
+                return nil
             }
 
             if controller.isCommandShiftHideMonitorEvent(event) {
@@ -1428,6 +1470,19 @@ final class ScreenShortcutController: ObservableObject {
             && !flags.contains(.maskAlternate)
             && !flags.contains(.maskShift)
             && keyCode == Int64(kVK_ANSI_M)
+    }
+
+    private nonisolated func isPinWindowEvent(_ event: CGEvent) -> Bool {
+        guard PinWindowStore.isEnabled else { return false }
+
+        let flags = event.flags
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+        return flags.contains(.maskControl)
+            && flags.contains(.maskAlternate)
+            && !flags.contains(.maskCommand)
+            && !flags.contains(.maskShift)
+            && keyCode == Int64(kVK_ANSI_P)
     }
 
     private nonisolated static func isArrowKeyCode(_ keyCode: UInt16) -> Bool {

@@ -4,15 +4,21 @@ This is the current inventory of real Mac Sys Settings 2 features. Keep it updat
 
 ## App / General
 
+- Setup Cost: one permission dashboard for Accessibility, Screen Recording, Input Monitoring, Microphone, Bluetooth, Files and Folders, Automation, and Login Items, with existing setting names listed under each permission.
+- Fun: slow-motion Shift animations for old-school Dock/minimize/Mission Control-style macOS animation paths.
 - Launch at login: turn Mac Sys Settings 2 on when the Mac starts.
 - Accessibility status: show whether Accessibility permission is available for window/control features.
 - Reset stuck keys: releases stuck shortcut/modifier state after shortcut issues.
 - Appearance mode: app light/dark/system styling.
+- System-wide Dark Mode with Notes Light exception: switches the Mac to Dark Mode and offers Notes as the only curated app that can stay light for now.
+- Notes light content: controls Notes > Settings > Use dark backgrounds for note content, so all note pages stay white while Notes chrome can remain dark.
 - Dock instant reveal tuning: sets Dock autohide delay/animation faster and can restore defaults.
 - Minimize animation tuning: uses the faster native Scale minimize effect.
 - Instant Command-M minimize path: shortcut-handled minimize behavior where supported.
 - Hide Apple battery icon: optional helper for using the custom battery menu item.
 - Hidden apps Dock dimming: setting/helper for making hidden apps visually clearer where possible.
+- Settings Change History: tracks Mac Sys Settings 2 settings and touched macOS defaults so recent resets are visible.
+- Settings Backup: exports/imports safe local preference groups for Mac Sys Settings 2, Finder, Dock, keyboard shortcuts/preferences, selected app preferences, and a privacy status checklist.
 
 ## Menu Bar / Compact Panel
 
@@ -41,12 +47,17 @@ This is the current inventory of real Mac Sys Settings 2 features. Keep it updat
 - Quick opposite-arrow browser snap: Left then Right / Right then Left can arrange current and next browser tab/window.
 - YouTube theater after tab snap: can press `T` after a short delay on YouTube tabs.
 - Cursor jump overlay: shortcut opens monitor/keypad chooser and moves cursor to a chosen screen point.
+- Cursor locator ring: Command-Shift-L shows a glowing ring around the current cursor, and Cursor Jump can fire the same ring after landing.
 - Hover to focus: focus follows hovered windows without clicking.
+- Pin FaceTime: Control-Option-P toggles the focused window above normal windows until pressed again or unpinned. Built for FaceTime, but works for any focused window.
+- Auto key press: Control-Option-Command-K opens a key/interval setup dialog when needed, starts repeating the chosen key every selected number of seconds, and stops on the same shortcut.
+- Audio tab jump: Control-Option-Command-P finds the Chrome/Safari tab marked as playing audio and focuses it.
 
 ## Finder / Downloads / Shelf
 
 - Downloads newest-first opener: opens Downloads in list view when new downloads arrive and shows newest at top.
 - Finder sort shortcut: shortcut opens Date Created / Date Modified style sorting chooser.
+- Open/Save folder defaults: per-app rules that steer macOS Open/Save/Upload/Import/Export panels to a chosen folder.
 - File shelf: Yoink-style temporary shelf triggered by selected files plus a real shake, with empty auto-close.
 
 ## Mic / Audio
@@ -54,6 +65,7 @@ This is the current inventory of real Mac Sys Settings 2 features. Keep it updat
 - Mic device list: shows available input devices.
 - Set default mic: choose system default input device.
 - Bluetooth audio input prompt: when an audio Bluetooth device appears, prompt for sound input choice.
+- Bluetooth off during sleep: turns Bluetooth off when the Mac sleeps and restores it on wake only if Mac Sys Settings 2 turned it off, with warnings for Apple Watch unlock, Bluetooth keyboard/mouse wake, and Find My-style behavior.
 - Sound input overlay: shows current mic and available mic choices.
 
 ## Layouts / Modes
@@ -74,4 +86,3 @@ This is the current inventory of real Mac Sys Settings 2 features. Keep it updat
 ## Known Manual-Test Items
 
 Use `MANUAL_TEST_QUEUE.md` for hardware/browser/manual verification that automation cannot prove cleanly.
-
