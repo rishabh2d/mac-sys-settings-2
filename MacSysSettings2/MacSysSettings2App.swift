@@ -27,6 +27,7 @@ struct MacSysSettings2App: App {
     @StateObject private var filePickerDefaultFolderController = FilePickerDefaultFolderController.shared
     @StateObject private var autoKeyPressController = AutoKeyPressController.shared
     @StateObject private var audioTabJumpController = AudioTabJumpController.shared
+    @StateObject private var clickLightController = ClickLightController.shared
     @StateObject private var pinWindowController = PinWindowController.shared
 
     var body: some Scene {
@@ -55,6 +56,7 @@ struct MacSysSettings2App: App {
                     filePickerDefaultFolderController.start()
                     autoKeyPressController.start()
                     audioTabJumpController.start()
+                    clickLightController.start()
                     pinWindowController.start()
                     AppAppearanceExceptionStore.pruneUnsupportedExceptions()
                     AppAppearanceExceptionStore.applyAllExceptions()

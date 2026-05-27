@@ -13,6 +13,7 @@ final class CenteredHUDPresenter {
     enum Kind {
         case paused
         case played
+        case searching
 
         var iconName: String {
             switch self {
@@ -20,6 +21,8 @@ final class CenteredHUDPresenter {
                 return "pause.fill"
             case .played:
                 return "play.fill"
+            case .searching:
+                return "magnifyingglass"
             }
         }
 
@@ -29,11 +32,13 @@ final class CenteredHUDPresenter {
                 return "Paused"
             case .played:
                 return "Played"
+            case .searching:
+                return "Searching tab with sound"
             }
         }
     }
 
-    private let panelSize = NSSize(width: 168, height: 168)
+    private let panelSize = NSSize(width: 360, height: 148)
     private var panel: PassiveHUDPanel?
     private var dismissTask: Task<Void, Never>?
 
@@ -52,10 +57,16 @@ final class CenteredHUDPresenter {
         }
 
         dismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 900_000_000)
+            try? await Task.sleep(nanoseconds: kind == .searching ? 2_500_000_000 : 900_000_000)
             guard let self, !Task.isCancelled else { return }
             hide(panel: panel)
         }
+    }
+
+    func hide() {
+        dismissTask?.cancel()
+        guard let panel else { return }
+        hide(panel: panel)
     }
 
     private func makePanelIfNeeded() -> PassiveHUDPanel {
@@ -71,7 +82,7 @@ final class CenteredHUDPresenter {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
@@ -119,24 +130,21 @@ private struct CenteredHUDView: View {
         ZStack {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(.ultraThinMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .strokeBorder(.white.opacity(0.2), lineWidth: 1)
-                }
 
             VStack(spacing: 10) {
                 Image(systemName: kind.iconName)
-                    .font(.system(size: 42, weight: .semibold))
+                    .font(.system(size: 40, weight: .semibold))
                     .foregroundStyle(.white)
 
                 Text(kind.label)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.gray.opacity(0.95))
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
             }
-            .padding(.top, 4)
+            .padding(.horizontal, 18)
         }
-        .frame(width: 168, height: 168)
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.18), radius: 22, y: 10)
+        .frame(width: 360, height: 148)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }

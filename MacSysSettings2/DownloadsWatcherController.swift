@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import ApplicationServices
 import Combine
 import Foundation
 
@@ -151,13 +152,14 @@ final class DownloadsWatcherController: ObservableObject {
         }
 
         lastStatus = newestFile.lastPathComponent
+        let sourceScreen = likelyDownloadSourceScreen()
 
         if DownloadsPreviewStore.isEnabled {
-            presenter.show(fileURL: newestFile)
+            presenter.show(fileURL: newestFile, on: sourceScreen)
         }
 
         if DownloadsPreviewStore.opensFinderOnNewDownload {
-            openDownloadsFolderShowingNewestFile(newestFile)
+            openDownloadsFolderShowingNewestFile(newestFile, on: sourceScreen)
         }
     }
 
@@ -187,19 +189,40 @@ final class DownloadsWatcherController: ObservableObject {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
-    private func openDownloadsFolderShowingNewestFile(_ fileURL: URL) {
+    private func openDownloadsFolderShowingNewestFile(_ fileURL: URL, on sourceScreen: NSScreen?) {
         let downloadsPath = downloadsURL.path
         let filePath = fileURL.path
-        let finderFrame = compactDownloadsFinderFrame()
+        let finderFrame = compactDownloadsFinderFrame(on: sourceScreen)
 
         Task.detached(priority: .utility) {
             let script = """
             on clampDownloadsWindow(leftEdge, topEdge, rightEdge, bottomEdge)
                 tell application "Finder"
-                    set bounds of front Finder window to {leftEdge, topEdge, rightEdge, bottomEdge}
-                    set sidebar width of front Finder window to 0
+                    try
+                        set bounds of front Finder window to {leftEdge, topEdge, rightEdge, bottomEdge}
+                    end try
+                    try
+                        set sidebar width of front Finder window to 0
+                    end try
                 end tell
             end clampDownloadsWindow
+
+            on focusDownloadsWindow()
+                tell application "Finder" to activate
+                tell application "System Events"
+                    set frontmost of process "Finder" to true
+                end tell
+            end focusDownloadsWindow
+
+            on sortDownloadsNewestFirst()
+                tell application "Finder"
+                    tell list view options of front Finder window
+                        set visible of column id modification date column to true
+                        set sort column to column id modification date column
+                        set sort direction of column id modification date column to reversed
+                    end tell
+                end tell
+            end sortDownloadsNewestFirst
 
             on run argv
                 set downloadsPath to item 1 of argv
@@ -224,30 +247,14 @@ final class DownloadsWatcherController: ObservableObject {
                     set newFile to POSIX file filePath as alias
                     delay 0.5
                     my clampDownloadsWindow(leftEdge, topEdge, rightEdge, bottomEdge)
-                    tell list view options of front Finder window
-                        set visible of column 2 to true
-                        set sort column to column 2
-                        set sort direction of column 2 to reversed
-                    end tell
+                    my sortDownloadsNewestFirst()
                     delay 0.2
                     my clampDownloadsWindow(leftEdge, topEdge, rightEdge, bottomEdge)
-                    tell list view options of front Finder window
-                        set sort column to column 2
-                        set sort direction of column 2 to reversed
-                    end tell
+                    my sortDownloadsNewestFirst()
                     reveal newFile
                     select newFile
                     my clampDownloadsWindow(leftEdge, topEdge, rightEdge, bottomEdge)
-                    repeat 180 times
-                        delay 0.25
-                        my clampDownloadsWindow(leftEdge, topEdge, rightEdge, bottomEdge)
-                    end repeat
-                    try
-                        set windowToClose to Finder window id downloadsWindowID
-                        if name of windowToClose is "Downloads" then
-                            close windowToClose
-                        end if
-                    end try
+                    my focusDownloadsWindow()
                 end tell
             end run
             """
@@ -289,8 +296,9 @@ final class DownloadsWatcherController: ObservableObject {
         }
     }
 
-    private func compactDownloadsFinderFrame() -> NSRect {
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+    private func compactDownloadsFinderFrame(on sourceScreen: NSScreen?) -> NSRect {
+        let screen = sourceScreen
+            ?? NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
             ?? NSScreen.main
             ?? NSScreen.screens.first
 
@@ -327,5 +335,94 @@ final class DownloadsWatcherController: ObservableObject {
             width: size.width,
             height: size.height
         )
+    }
+
+    private func likelyDownloadSourceScreen() -> NSScreen? {
+        if let frontmostApp = NSWorkspace.shared.frontmostApplication,
+           let screen = focusedWindowScreen(for: frontmostApp),
+           isLikelyDownloadSource(frontmostApp) {
+            return screen
+        }
+
+        for bundleID in ["com.google.Chrome", "com.google.Chrome.canary", "com.microsoft.edgemac", "com.apple.Safari"] {
+            guard let app = NSWorkspace.shared.runningApplications.first(where: {
+                $0.bundleIdentifier == bundleID && !$0.isTerminated
+            }) else {
+                continue
+            }
+
+            if let screen = focusedWindowScreen(for: app) {
+                return screen
+            }
+        }
+
+        return NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+    }
+
+    private func isLikelyDownloadSource(_ app: NSRunningApplication) -> Bool {
+        guard let bundleID = app.bundleIdentifier else { return false }
+        return [
+            "com.google.Chrome",
+            "com.google.Chrome.canary",
+            "com.microsoft.edgemac",
+            "com.apple.Safari"
+        ].contains(bundleID)
+    }
+
+    private func focusedWindowScreen(for app: NSRunningApplication) -> NSScreen? {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &value) == .success,
+              let value else {
+            return nil
+        }
+
+        let window = value as! AXUIElement
+        guard let frame = accessibilityFrame(for: window) else {
+            return nil
+        }
+
+        return screen(containingAccessibilityFrame: frame)
+    }
+
+    private func accessibilityFrame(for window: AXUIElement) -> CGRect? {
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeValue) == .success,
+              let positionValue,
+              let sizeValue,
+              CFGetTypeID(positionValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue((positionValue as! AXValue), .cgPoint, &position),
+              AXValueGetValue((sizeValue as! AXValue), .cgSize, &size) else {
+            return nil
+        }
+
+        return CGRect(origin: position, size: size)
+    }
+
+    private func screen(containingAccessibilityFrame frame: CGRect) -> NSScreen? {
+        NSScreen.screens
+            .map { screen -> (screen: NSScreen, area: CGFloat) in
+                let intersection = accessibilityScreenFrame(for: screen).intersection(frame)
+                let area = intersection.isNull ? 0 : intersection.width * intersection.height
+                return (screen, area)
+            }
+            .max { $0.area < $1.area }?
+            .screen
+    }
+
+    private func accessibilityScreenFrame(for screen: NSScreen) -> CGRect {
+        guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+            return screen.frame
+        }
+
+        return CGDisplayBounds(displayID)
     }
 }

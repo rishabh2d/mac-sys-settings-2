@@ -53,6 +53,10 @@ This is the current inventory of real Mac Sys Settings 2 features. Keep it updat
 - Auto key press: Control-Option-Command-K opens a key/interval setup dialog when needed, starts repeating the chosen key every selected number of seconds, and stops on the same shortcut.
 - Audio tab jump: Control-Option-Command-P finds the Chrome/Safari tab marked as playing audio and focuses it.
 
+## Presentation / Meetings
+
+- Cursor Highlight: shows live click highlights across Mac apps for demos, meetings, recordings, UX reviews, and tutorials, with size, duration, intensity, right-click/drag visuals, and a test pulse.
+
 ## Finder / Downloads / Shelf
 
 - Downloads newest-first opener: opens Downloads in list view when new downloads arrive and shows newest at top.

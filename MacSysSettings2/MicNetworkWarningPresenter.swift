@@ -66,7 +66,7 @@ final class MicNetworkWarningPresenter {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .screenSaver
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
@@ -130,7 +130,10 @@ private struct MicNetworkWarningView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
                     .frame(width: 22, height: 22)
-                    .background(Circle().fill(Color.white.opacity(0.10)))
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(Color.white.opacity(0.10))
+                    )
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white.opacity(0.65))
@@ -141,9 +144,6 @@ private struct MicNetworkWarningView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.black.opacity(0.92))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }

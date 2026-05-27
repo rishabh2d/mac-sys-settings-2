@@ -75,7 +75,7 @@ final class BrowserMoveChoicePresenter {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
@@ -140,10 +140,15 @@ private struct BrowserMoveChoiceView: View {
                 Spacer()
                 Button(action: onCancel) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.72))
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: 34, height: 34)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
                 }
                 .buttonStyle(.plain)
+                .foregroundStyle(.white.opacity(0.86))
             }
 
             HStack(spacing: 12) {
@@ -160,12 +165,8 @@ private struct BrowserMoveChoiceView: View {
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color.black.opacity(0.88))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                )
         )
-        .shadow(color: .black.opacity(0.3), radius: 24, y: 12)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private func choiceButton(letter: String, title: String, subtitle: String, action: @escaping () -> Void) -> some View {
@@ -185,10 +186,7 @@ private struct BrowserMoveChoiceView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(Color.white.opacity(0.14))
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
-            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
     }

@@ -33,4 +33,5 @@ enum DownloadsPreviewStore {
         UserDefaults.standard.set(enabled, forKey: finderDefaultsKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
+
 }

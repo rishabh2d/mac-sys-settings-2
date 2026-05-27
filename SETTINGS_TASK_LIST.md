@@ -413,6 +413,22 @@ Use this file as the living queue for brainstormed settings. Add ideas here firs
 - Test plan: connect an external drive, scan, verify readable status.
 - macOS limits: many USB enclosures do not expose SMART data to macOS.
 
+### 30. Preserve Chrome Layout When Moving Between Monitors
+
+- Status: `Discussed`
+- Page: `Screen`
+- Section: `Window Movement`
+- Setting: make `Control-Option-Left/Right` preserve Chrome's current snap shape when moving between monitors.
+- Trigger: `Control-Option-Left` and `Control-Option-Right`.
+- Behavior: if Chrome is faux-fullscreen, meaning a normal window touching the usable screen borders like the `Control-Up` version, moving it to another monitor should keep it faux-fullscreen on the destination monitor instead of shrinking or drifting.
+- Behavior: if Chrome is left-half or right-half on an external monitor, moving it to the main monitor should keep the same half-screen shape with exact top alignment; no small offset down from the top.
+- Behavior: if the user presses a snap shortcut immediately after `Control-Option-Left/Right`, before the monitor move has visually finished, remember that pending snap and apply it after the window lands. Example: press `Control-Option-Right`, then quickly press `Control-Tab-Left/Right/Up`; the app should move the window to the next monitor first, then align it left, right, or full according to the second shortcut.
+- Optional steps: for a Chrome YouTube tab/window, after the move finishes and the window is aligned as left-half or right-half, automatically press `T` on that YouTube tab.
+- UI copy: "Move Chrome to the other screen without losing its shape."
+- Permission: Accessibility; Chrome tab/title detection may need browser scripting permission.
+- Test plan: test Chrome faux-fullscreen external -> main and main -> external; test Chrome left-half and right-half external -> main and main -> external; while a monitor move is still in progress, press the left/right/up snap shortcut and verify the final landed window uses that queued alignment; verify exact usable screen edges numerically; test a YouTube tab receives `T` only after the moved window lands and is aligned; restore all Chrome windows/tabs afterward.
+- macOS limits: Chrome may report slightly unusual Accessibility frames across monitors; implementation must compare against usable screen bounds and correct final edges after the move.
+
 ## Template
 
 ### N. Setting Name

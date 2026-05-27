@@ -9,10 +9,14 @@ import Foundation
 
 enum SpaceSwitchShortcutStore {
     private static let domain = "com.apple.symbolichotkeys"
-    private static let hotKeyIDs = ["79", "80"]
+    private static let managedHotKeys: [String: [Int]] = [
+        "32": [65535, 126, 262144],
+        "79": [65535, 123, 262144],
+        "80": [65535, 124, 262144]
+    ]
 
     static var isEnabled: Bool {
-        hotKeyIDs.contains { isHotKeyEnabled($0) }
+        managedHotKeys.keys.contains { isHotKeyEnabled($0) }
     }
 
     @discardableResult
@@ -21,9 +25,15 @@ enum SpaceSwitchShortcutStore {
         var domainValues = defaults.persistentDomain(forName: domain) ?? [:]
         var hotKeys = domainValues["AppleSymbolicHotKeys"] as? [String: Any] ?? [:]
 
-        for id in hotKeyIDs {
+        for (id, parameters) in managedHotKeys {
             var entry = hotKeys[id] as? [String: Any] ?? [:]
             entry["enabled"] = enabled
+            if entry["value"] == nil {
+                entry["value"] = [
+                    "parameters": parameters,
+                    "type": "standard"
+                ]
+            }
             hotKeys[id] = entry
         }
 

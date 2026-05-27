@@ -42,6 +42,7 @@ final class MenuBarController: NSObject {
 
         statusItem = item
         startBatteryItem()
+        ClickLightController.shared.start()
     }
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
@@ -306,12 +307,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let micNetworkWarningController = MicNetworkWarningController.shared
     private let screenShortcutController = ScreenShortcutController.shared
     private let bluetoothSleepController = BluetoothSleepController.shared
+    private let audioTabJumpController = AudioTabJumpController.shared
+    private let clickLightController = ClickLightController.shared
     private let pinWindowController = PinWindowController.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in
             MenuBarController.shared.start()
             screenShortcutController.start()
+            audioTabJumpController.start()
+            clickLightController.start()
             pinWindowController.start()
             CursorJumpController.shared.start()
             FileShelfController.shared.start()
@@ -321,7 +326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsChangeHistoryController.shared.start()
             AppAppearanceExceptionStore.applyAllExceptions()
             AppAppearanceExceptionStore.applyNotesLightBackgroundIfEnabled()
-            LoginItemStore.setEnabled(true, rememberChoice: false)
+            LoginItemStore.enableByDefaultIfNeeded()
             if CommandLine.arguments.contains("--show-compact") {
                 showCompactPanelForLaunchPreview()
             } else {
@@ -334,7 +339,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func hideInitialWindow() {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 350_000_000)
-            NSApp.hide(nil)
+            for window in NSApp.windows where window.canBecomeMain {
+                window.orderOut(nil)
+            }
         }
     }
 

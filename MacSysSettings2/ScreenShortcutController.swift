@@ -32,7 +32,6 @@ final class ScreenShortcutController: ObservableObject {
     private var commandShiftHideHotKeyRef: EventHotKeyRef?
     private var instantMinimizeHotKeyRef: EventHotKeyRef?
     private var modeChooserHotKeyRef: EventHotKeyRef?
-    private var pinWindowHotKeyRef: EventHotKeyRef?
     private var controlArrowGlobalMonitor: Any?
     private var controlArrowLocalMonitor: Any?
     private var controlArrowEventTap: CFMachPort?
@@ -56,7 +55,6 @@ final class ScreenShortcutController: ObservableObject {
     private let modeChooserHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 7)
     private let commandShiftHideHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 10)
     private let instantMinimizeHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 15)
-    private let pinWindowHotKeyID = EventHotKeyID(signature: OSType(0x4D535332), id: 16)
     private var shortcut = ScreenShortcut.current()
     private var shortcutObserver: NSObjectProtocol?
     private var controlArrowObserver: NSObjectProtocol?
@@ -72,6 +70,7 @@ final class ScreenShortcutController: ObservableObject {
     private let monitorMoveOverlayPresenter = MonitorMoveOverlayPresenter()
     private let modeChooserPresenter = ModeChooserPresenter()
     private let browserMoveChoicePresenter = BrowserMoveChoicePresenter()
+    private let chromeTabMergeChoicePresenter = ChromeTabMergeChoicePresenter()
     private var lastMonitorMoveBatch: MonitorMoveBatch?
     private var moveOthersArmedUntil: Date?
     private var parkedHiddenApp: HiddenApp?
@@ -87,18 +86,30 @@ final class ScreenShortcutController: ObservableObject {
     private var browserTabPairCandidate: BrowserTabPairCandidate?
     private var browserTabSnapInFlight: BrowserTabSnapInFlight?
     private var pendingBrowserTabPairSide: SnapSide?
+    private var lastYouTubeTheaterKeyPressAt: [String: Date] = [:]
     private var commandOptionArrowSequence: [CommandOptionArrowPress] = []
     private var monitorArrangeArrowSequence: [CommandOptionArrowPress] = []
     private var pendingMonitorMoveTask: Task<Void, Never>?
     private var pendingControlUpSnapTask: Task<Void, Never>?
+    private var pendingControlDownSnapTask: Task<Void, Never>?
     private var lastControlUpPressDate: Date?
+    private var lastControlDownPressDate: Date?
+    private var monitorDragLocalMouseMonitor: Any?
+    private var monitorDragGlobalMouseMonitor: Any?
+    private var monitorDragSnapCandidate: MonitorDragSnapCandidate?
+    private var lastMonitorDragSnapAt = Date.distantPast
+    private var controlArrowSelfHealTimer: Timer?
+    private nonisolated(unsafe) var lastRawControlUpPressTime: CFAbsoluteTime = 0
+    private nonisolated(unsafe) var lastRawControlDownPressTime: CFAbsoluteTime = 0
 
     func start() {
         guard !hasStarted else {
+            ensurePermanentControlArrowRegistration()
             return
         }
         hasStarted = true
         log("ScreenShortcutController starting")
+        ControlArrowSnapStore.setEnabled(true)
         requestAccessibilityAccess()
         observeShortcutChanges()
         observeControlArrowChanges()
@@ -115,7 +126,8 @@ final class ScreenShortcutController: ObservableObject {
         registerDesktopIconsHotKey()
         registerCommandHideShortcut()
         registerModeChooserHotKey()
-        registerPinWindowHotKey()
+        startMonitorDragSnapMonitor()
+        startControlArrowSelfHealTimer()
     }
 
     deinit {
@@ -155,6 +167,7 @@ final class ScreenShortcutController: ObservableObject {
         if let applicationHideObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(applicationHideObserver)
         }
+        controlArrowSelfHealTimer?.invalidate()
         if let moveHotKeyRef {
             UnregisterEventHotKey(moveHotKeyRef)
         }
@@ -200,14 +213,17 @@ final class ScreenShortcutController: ObservableObject {
         if let modeChooserHotKeyRef {
             UnregisterEventHotKey(modeChooserHotKeyRef)
         }
-        if let pinWindowHotKeyRef {
-            UnregisterEventHotKey(pinWindowHotKeyRef)
-        }
         if let controlArrowGlobalMonitor {
             NSEvent.removeMonitor(controlArrowGlobalMonitor)
         }
         if let controlArrowLocalMonitor {
             NSEvent.removeMonitor(controlArrowLocalMonitor)
+        }
+        if let monitorDragLocalMouseMonitor {
+            NSEvent.removeMonitor(monitorDragLocalMouseMonitor)
+        }
+        if let monitorDragGlobalMouseMonitor {
+            NSEvent.removeMonitor(monitorDragGlobalMouseMonitor)
         }
         if let controlArrowEventTap {
             CGEvent.tapEnable(tap: controlArrowEventTap, enable: false)
@@ -370,7 +386,7 @@ final class ScreenShortcutController: ObservableObject {
             snapActiveBrowserTab(to: .right)
         case downSnapHotKeyID.id:
             log("Control-Down hotkey pressed")
-            snapFrontWindow(to: .down)
+            handleControlDownPressed()
         case desktopIconsHotKeyID.id:
             log("Command-Shift-X desktop icons hotkey pressed")
             toggleDesktopIcons()
@@ -386,36 +402,8 @@ final class ScreenShortcutController: ObservableObject {
         case modeChooserHotKeyID.id:
             log("Mode chooser hotkey pressed")
             showModeChooser()
-        case pinWindowHotKeyID.id:
-            log("Control-Option-P pin window hotkey pressed")
-            PinWindowController.shared.toggleFocusedWindow()
         default:
             break
-        }
-    }
-
-    private func registerPinWindowHotKey() {
-        guard PinWindowStore.isEnabled, pinWindowHotKeyRef == nil else { return }
-
-        guard ensureEventHandlerInstalled() else {
-            lastStatus = "Could not install \(PinWindowStore.shortcut.displayText) handler."
-            return
-        }
-
-        let shortcut = PinWindowStore.shortcut
-        let status = RegisterEventHotKey(
-            shortcut.keyCode,
-            shortcut.carbonModifiers,
-            pinWindowHotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &pinWindowHotKeyRef
-        )
-
-        if status == noErr {
-            log("\(shortcut.displayText) pin window hotkey registered")
-        } else {
-            log("Pin window RegisterEventHotKey failed \(status)")
         }
     }
 
@@ -634,7 +622,7 @@ final class ScreenShortcutController: ObservableObject {
     }
 
     private func registerCommandHideEventTap() {
-        guard (CommandHideToggleStore.isEnabled || CommandShiftHideMonitorStore.isEnabled || InstantMinimizeStore.isEnabled || PinWindowStore.isEnabled), commandHideEventTap == nil else { return }
+        guard (CommandHideToggleStore.isEnabled || CommandShiftHideMonitorStore.isEnabled || InstantMinimizeStore.isEnabled), commandHideEventTap == nil else { return }
 
         let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
@@ -657,14 +645,6 @@ final class ScreenShortcutController: ObservableObject {
                 return Unmanaged.passUnretained(event)
             }
 
-            if controller.isPinWindowEvent(event) {
-                Task { @MainActor in
-                    controller.log("Control-Option-P pin window event tap pressed")
-                    PinWindowController.shared.toggleFocusedWindow()
-                }
-                return nil
-            }
-
             if controller.isCommandShiftHideMonitorEvent(event) {
                 Task { @MainActor in
                     controller.log("Command-Shift-H monitor hide event tap pressed")
@@ -683,9 +663,10 @@ final class ScreenShortcutController: ObservableObject {
             }
 
             if controller.isInstantMinimizeEvent(event) {
+                let targetPID = pid_t(event.getIntegerValueField(.eventTargetUnixProcessID))
                 Task { @MainActor in
                     controller.log("Command-M instant minimize event tap pressed")
-                    controller.instantMinimizeFocusedWindow()
+                    controller.instantMinimizeFocusedWindow(targetPID: targetPID)
                 }
                 return nil
             }
@@ -959,6 +940,36 @@ final class ScreenShortcutController: ObservableObject {
         )
     }
 
+    private func startControlArrowSelfHealTimer() {
+        guard controlArrowSelfHealTimer == nil else { return }
+
+        controlArrowSelfHealTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.ensurePermanentControlArrowRegistration()
+            }
+        }
+        controlArrowSelfHealTimer?.tolerance = 1
+    }
+
+    private func ensurePermanentControlArrowRegistration() {
+        guard ControlArrowSnapStore.isEnabled else {
+            ControlArrowSnapStore.setEnabled(true)
+            return
+        }
+
+        if leftSnapHotKeyRef == nil
+            || rightSnapHotKeyRef == nil
+            || upSnapHotKeyRef == nil
+            || downSnapHotKeyRef == nil
+            || controlArrowEventTap == nil {
+            log("Control-Arrow shortcut self-heal registering")
+            registerControlArrowHotKeys()
+        } else if let controlArrowEventTap, !CGEvent.tapIsEnabled(tap: controlArrowEventTap) {
+            log("Control-Arrow event tap self-heal enabled")
+            CGEvent.tapEnable(tap: controlArrowEventTap, enable: true)
+        }
+    }
+
     private func observeMonitorMoveChanges() {
         guard monitorMoveObserver == nil else { return }
 
@@ -1102,11 +1113,17 @@ final class ScreenShortcutController: ObservableObject {
                         controller.log("Control-Right event tap pressed")
                         controller.snapFrontWindow(to: .right)
                     } else if keyCode == Int64(kVK_UpArrow) {
+                        let now = CFAbsoluteTimeGetCurrent()
+                        let isRawDoublePress = now - controller.lastRawControlUpPressTime <= 0.25
+                        controller.lastRawControlUpPressTime = now
                         controller.log("Control-Up event tap pressed")
-                        controller.handleControlUpPressed()
+                        controller.handleControlUpPressed(rawDoublePress: isRawDoublePress)
                     } else if keyCode == Int64(kVK_DownArrow) {
+                        let now = CFAbsoluteTimeGetCurrent()
+                        let isRawDoublePress = now - controller.lastRawControlDownPressTime <= 0.25
+                        controller.lastRawControlDownPressTime = now
                         controller.log("Control-Down event tap pressed")
-                        controller.snapFrontWindow(to: .down)
+                        controller.handleControlDownPressed(rawDoublePress: isRawDoublePress)
                     }
                 }
                 return nil
@@ -1267,10 +1284,10 @@ final class ScreenShortcutController: ObservableObject {
             snapFrontWindow(to: .right)
         } else if event.keyCode == UInt16(kVK_UpArrow) {
             log("Control-Up event pressed")
-            snapFrontWindow(to: .up)
+            handleControlUpPressed()
         } else if event.keyCode == UInt16(kVK_DownArrow) {
             log("Control-Down event pressed")
-            snapFrontWindow(to: .down)
+            handleControlDownPressed()
         }
     }
 
@@ -1472,19 +1489,6 @@ final class ScreenShortcutController: ObservableObject {
             && keyCode == Int64(kVK_ANSI_M)
     }
 
-    private nonisolated func isPinWindowEvent(_ event: CGEvent) -> Bool {
-        guard PinWindowStore.isEnabled else { return false }
-
-        let flags = event.flags
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-
-        return flags.contains(.maskControl)
-            && flags.contains(.maskAlternate)
-            && !flags.contains(.maskCommand)
-            && !flags.contains(.maskShift)
-            && keyCode == Int64(kVK_ANSI_P)
-    }
-
     private nonisolated static func isArrowKeyCode(_ keyCode: UInt16) -> Bool {
         keyCode == UInt16(kVK_LeftArrow)
             || keyCode == UInt16(kVK_RightArrow)
@@ -1555,7 +1559,7 @@ final class ScreenShortcutController: ObservableObject {
 
         let currentFrame = CGRect(origin: position, size: size)
         let screens = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }
-        let currentScreen = screens.first { $0.frame.intersects(currentFrame) } ?? NSScreen.main ?? screens[0]
+        let currentScreen = accessibilityScreen(for: currentFrame) ?? NSScreen.main ?? screens[0]
         guard let currentIndex = screens.firstIndex(of: currentScreen) else { return }
 
         let targetScreen = screens[(currentIndex + 1) % screens.count]
@@ -1566,7 +1570,49 @@ final class ScreenShortcutController: ObservableObject {
             usesAccessibilityCoordinates: true
         )
 
+        let browserDefinition = browserTabSnapDefinitions.first { $0.bundleIdentifier == app.bundleIdentifier }
+        let browserWindowID = browserDefinition?.usesChromeScripting == true
+            ? activeChromeStyleFrontWindowID(appName: browserDefinition?.appName ?? "")
+            : nil
+
         setWindow(window, position: newFrame.origin, size: newFrame.size)
+        if let browserDefinition,
+           browserDefinition.usesChromeScripting {
+            let shouldZoomFullScreen = frameLooksFullScreen(newFrame, in: accessibilityScreenFrame(for: targetScreen))
+            if let browserWindowID {
+                setChromeStyleWindowBounds(appName: browserDefinition.appName, windowID: browserWindowID, frame: newFrame)
+                if shouldZoomFullScreen {
+                    zoomChromeStyleWindow(appName: browserDefinition.appName, windowID: browserWindowID)
+                }
+            } else {
+                setChromeStyleFrontWindowBounds(appName: browserDefinition.appName, frame: newFrame)
+                if shouldZoomFullScreen {
+                    zoomChromeStyleFrontWindow(appName: browserDefinition.appName)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                guard let self else { return }
+                guard let currentPosition = self.windowPoint(window, attribute: kAXPositionAttribute),
+                      let currentSize = self.windowSize(window),
+                      self.framesAreClose(CGRect(origin: currentPosition, size: currentSize), newFrame) else {
+                    self.log("skipped delayed Chrome monitor move reassert because window was snapped after move")
+                    return
+                }
+
+                self.setWindow(window, position: newFrame.origin, size: newFrame.size)
+                if let browserWindowID {
+                    self.setChromeStyleWindowBounds(appName: browserDefinition.appName, windowID: browserWindowID, frame: newFrame)
+                    if shouldZoomFullScreen {
+                        self.zoomChromeStyleWindow(appName: browserDefinition.appName, windowID: browserWindowID)
+                    }
+                } else {
+                    self.setChromeStyleFrontWindowBounds(appName: browserDefinition.appName, frame: newFrame)
+                    if shouldZoomFullScreen {
+                        self.zoomChromeStyleFrontWindow(appName: browserDefinition.appName)
+                    }
+                }
+            }
+        }
         lastStatus = "Moved \(app.localizedName ?? "window") to Screen \((screens.firstIndex(of: targetScreen) ?? 0) + 1)."
         log("moved \(app.localizedName ?? "window") from \(currentFrame) to \(newFrame)")
     }
@@ -1646,7 +1692,7 @@ final class ScreenShortcutController: ObservableObject {
 
         let currentFrame = window.frame
         let screens = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }
-        let currentScreen = screens.first { $0.frame.intersects(currentFrame) } ?? window.screen ?? NSScreen.main ?? screens[0]
+        let currentScreen = window.screen ?? screens.first { $0.visibleFrame.intersects(currentFrame) } ?? NSScreen.main ?? screens[0]
         guard let currentIndex = screens.firstIndex(of: currentScreen) else { return }
 
         let targetScreen = screens[(currentIndex + 1) % screens.count]
@@ -1720,11 +1766,7 @@ final class ScreenShortcutController: ObservableObject {
     }
 
     private func toggleCommandHide(targetPID: pid_t? = nil) {
-        if CommandHideToggleStore.hidesFocusedWindowOnly {
-            toggleParkedFocusedWindow(targetPID: targetPID)
-        } else {
-            toggleParkedHiddenApp(targetPID: targetPID)
-        }
+        toggleParkedHiddenApp(targetPID: targetPID)
     }
 
     private func toggleParkedHiddenApp(targetPID: pid_t? = nil) {
@@ -1859,13 +1901,19 @@ final class ScreenShortcutController: ObservableObject {
         log("Command-H focused-window minimized \(hiddenWindow.localizedName) \(hiddenWindow.title)")
     }
 
-    private func instantMinimizeFocusedWindow() {
+    private func instantMinimizeFocusedWindow(targetPID: pid_t? = nil) {
         guard AXIsProcessTrusted() else {
             requestAccessibilityAccess()
             return
         }
 
-        guard let app = NSWorkspace.shared.frontmostApplication,
+        let targetApp = targetPID.flatMap { pid in
+            NSWorkspace.shared.runningApplications.first {
+                $0.processIdentifier == pid && !$0.isTerminated
+            }
+        }
+
+        guard let app = targetApp ?? NSWorkspace.shared.frontmostApplication,
               !app.isTerminated,
               app.activationPolicy == .regular,
               app.bundleIdentifier != Bundle.main.bundleIdentifier else {
@@ -1881,15 +1929,16 @@ final class ScreenShortcutController: ObservableObject {
             return
         }
 
+        let windowTitle = windowStringAttribute(window, kAXTitleAttribute)
         let status = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
         guard status == .success else {
             lastStatus = "Could not minimize focused window."
-            log("Command-M instant minimize failed \(status.rawValue)")
+            log("Command-M fast minimize failed \(status.rawValue)")
             return
         }
 
         lastStatus = "Focused window minimized."
-        log("Command-M instant minimized \(app.localizedName ?? "App") \(windowStringAttribute(window, kAXTitleAttribute))")
+        log("Command-M instant minimized \(app.localizedName ?? "App") \(windowTitle)")
     }
 
     private func restoreParkedHiddenWindowIfPossible() -> Bool {
@@ -2699,9 +2748,25 @@ final class ScreenShortcutController: ObservableObject {
         let expiresAt: Date
     }
 
+    private struct ChromeTabMergeChoiceSet {
+        let sourceWindowID: Int
+        let sourceTitle: String
+        let sourceDomain: String
+        let choices: [ChromeTabMergeWindowChoice]
+    }
+
     private struct CommandOptionArrowPress {
         let side: SnapSide
         let pressedAt: Date
+    }
+
+    private struct MonitorDragSnapCandidate {
+        let appName: String
+        let processIdentifier: pid_t
+        let snapKey: String
+        let initialFrame: CGRect
+        let sourceScreenFrame: CGRect
+        let startedAt: Date
     }
 
     private let browserTabSnapDefinitions = [
@@ -2709,6 +2774,96 @@ final class ScreenShortcutController: ObservableObject {
         BrowserTabSnapDefinition(bundleIdentifier: "com.microsoft.edgemac", appName: "Microsoft Edge", usesChromeScripting: true),
         BrowserTabSnapDefinition(bundleIdentifier: "com.apple.Safari", appName: "Safari", usesChromeScripting: false)
     ]
+
+    private func startMonitorDragSnapMonitor() {
+        guard monitorDragLocalMouseMonitor == nil, monitorDragGlobalMouseMonitor == nil else { return }
+
+        monitorDragLocalMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            Task { @MainActor in
+                self?.handleMonitorDragMouseEvent(event.type)
+            }
+            return event
+        }
+
+        monitorDragGlobalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            Task { @MainActor in
+                self?.handleMonitorDragMouseEvent(event.type)
+            }
+        }
+    }
+
+    private func handleMonitorDragMouseEvent(_ type: NSEvent.EventType) {
+        guard ControlArrowSnapStore.isEnabled,
+              ControlArrowSnapStore.snapAfterMonitorDragEnabled,
+              AXIsProcessTrusted() else {
+            monitorDragSnapCandidate = nil
+            return
+        }
+
+        switch type {
+        case .leftMouseDown:
+            guard let target = focusedSnapTarget() ?? snapTargetUnderMouse() else {
+                monitorDragSnapCandidate = nil
+                return
+            }
+            monitorDragSnapCandidate = MonitorDragSnapCandidate(
+                appName: target.appName,
+                processIdentifier: target.processIdentifier,
+                snapKey: target.snapKey,
+                initialFrame: target.frame,
+                sourceScreenFrame: target.screenFrame,
+                startedAt: Date()
+            )
+        case .leftMouseUp:
+            guard let candidate = monitorDragSnapCandidate else { return }
+            monitorDragSnapCandidate = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+                self?.finishMonitorDragSnapIfNeeded(candidate)
+            }
+        default:
+            break
+        }
+    }
+
+    private func finishMonitorDragSnapIfNeeded(_ candidate: MonitorDragSnapCandidate) {
+        guard ControlArrowSnapStore.isEnabled,
+              ControlArrowSnapStore.snapAfterMonitorDragEnabled,
+              Date().timeIntervalSince(lastMonitorDragSnapAt) > 0.9,
+              Date().timeIntervalSince(candidate.startedAt) < 12,
+              let target = focusedSnapTarget() ?? snapTargetUnderMouse(),
+              target.processIdentifier == candidate.processIdentifier,
+              target.appName == candidate.appName,
+              !screenFramesMatch(target.screenFrame, candidate.sourceScreenFrame),
+              frameMovedEnough(from: candidate.initialFrame, to: target.frame) else {
+            return
+        }
+
+        activeSnapTarget = nil
+        activeSnapTargetUntil = Date.distantPast
+        lastMonitorDragSnapAt = Date()
+        snapFrontWindow(to: .up)
+    }
+
+    private func screenFramesMatch(_ first: CGRect, _ second: CGRect) -> Bool {
+        abs(first.minX - second.minX) < 3
+            && abs(first.minY - second.minY) < 3
+            && abs(first.width - second.width) < 3
+            && abs(first.height - second.height) < 3
+    }
+
+    private func frameLooksFullScreen(_ frame: CGRect, in screenFrame: CGRect) -> Bool {
+        abs(frame.minX - screenFrame.minX) <= 4
+            && abs(frame.minY - screenFrame.minY) <= 4
+            && abs(frame.width - screenFrame.width) <= 8
+            && abs(frame.height - screenFrame.height) <= 8
+    }
+
+    private func frameMovedEnough(from initialFrame: CGRect, to currentFrame: CGRect) -> Bool {
+        abs(initialFrame.minX - currentFrame.minX) > 40
+            || abs(initialFrame.minY - currentFrame.minY) > 40
+            || abs(initialFrame.midX - currentFrame.midX) > 40
+            || abs(initialFrame.midY - currentFrame.midY) > 40
+    }
 
     private func snapFrontWindow(to side: SnapSide, cyclesHorizontalSizes: Bool = true) {
         guard AXIsProcessTrusted() else {
@@ -2781,25 +2936,31 @@ final class ScreenShortcutController: ObservableObject {
         }
     }
 
-    private func handleControlUpPressed() {
-        guard shouldUseChromeDoubleUpMerge() else {
+    private func handleControlUpPressed(rawDoublePress: Bool = false) {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome" else {
             clearPendingControlUpSnap()
             snapFrontWindow(to: .up)
             return
         }
 
+        if rawDoublePress {
+            clearPendingControlUpSnap()
+            showChromeTabMergeChooser()
+            return
+        }
+
         let now = Date()
         if let lastControlUpPressDate,
-           now.timeIntervalSince(lastControlUpPressDate) <= 0.3 {
+           now.timeIntervalSince(lastControlUpPressDate) <= 0.25 {
             clearPendingControlUpSnap()
-            mergeActiveChromeTabIntoNextWindow()
+            showChromeTabMergeChooser()
             return
         }
 
         lastControlUpPressDate = now
         pendingControlUpSnapTask?.cancel()
         pendingControlUpSnapTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self, !Task.isCancelled else { return }
             self.pendingControlUpSnapTask = nil
             self.lastControlUpPressDate = nil
@@ -2811,6 +2972,44 @@ final class ScreenShortcutController: ObservableObject {
         pendingControlUpSnapTask?.cancel()
         pendingControlUpSnapTask = nil
         lastControlUpPressDate = nil
+    }
+
+    private func handleControlDownPressed(rawDoublePress: Bool = false) {
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.google.Chrome" else {
+            clearPendingControlDownSnap()
+            snapFrontWindow(to: .down)
+            return
+        }
+
+        if rawDoublePress {
+            clearPendingControlDownSnap()
+            detachActiveChromeTab()
+            return
+        }
+
+        let now = Date()
+        if let lastControlDownPressDate,
+           now.timeIntervalSince(lastControlDownPressDate) <= 0.25 {
+            clearPendingControlDownSnap()
+            detachActiveChromeTab()
+            return
+        }
+
+        lastControlDownPressDate = now
+        pendingControlDownSnapTask?.cancel()
+        pendingControlDownSnapTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.pendingControlDownSnapTask = nil
+            self.lastControlDownPressDate = nil
+            self.snapFrontWindow(to: .down)
+        }
+    }
+
+    private func clearPendingControlDownSnap() {
+        pendingControlDownSnapTask?.cancel()
+        pendingControlDownSnapTask = nil
+        lastControlDownPressDate = nil
     }
 
     private func shouldUseChromeDoubleUpMerge() -> Bool {
@@ -2831,49 +3030,387 @@ final class ScreenShortcutController: ObservableObject {
         return NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue == "yes"
     }
 
-    private func mergeActiveChromeTabIntoNextWindow() {
+    private func showChromeTabMergeChooser() {
+        guard let choiceSet = chromeTabMergeChoiceSet(), !choiceSet.choices.isEmpty else {
+            lastStatus = "No Chrome window behind to merge into."
+            log("Control-Up double press found no Chrome merge choices")
+            return
+        }
+
+        if choiceSet.choices.count == 1, let choice = choiceSet.choices.first {
+            lastStatus = "Merging Chrome tab into the only available window."
+            log("Control-Up double press merging into only available Chrome window \(choice.id)")
+            mergeActiveChromeTab(sourceWindowID: choiceSet.sourceWindowID, intoWindowID: choice.id)
+            return
+        }
+
+        lastStatus = "Choose a Chrome window for the tab."
+        log("Control-Up double press showing \(choiceSet.choices.count) Chrome merge choices")
+
+        chromeTabMergeChoicePresenter.show(
+            sourceTitle: choiceSet.sourceTitle,
+            sourceDomain: choiceSet.sourceDomain,
+            choices: choiceSet.choices,
+            onSelect: { [weak self] choice in
+                self?.mergeActiveChromeTab(sourceWindowID: choiceSet.sourceWindowID, intoWindowID: choice.id)
+            },
+            onCancel: { [weak self] in
+                self?.lastStatus = "Chrome tab merge cancelled."
+                self?.log("Control-Up double press merge cancelled")
+            }
+        )
+    }
+
+    private func chromeTabMergeChoiceSet() -> ChromeTabMergeChoiceSet? {
         let script = """
         tell application id "com.google.Chrome"
-            if (count of windows) < 2 then return "no-target"
+            set tabChar to ASCII character 9
+            if (count of windows) < 2 then return ""
             set sourceWindow to front window
-            set targetWindow to window 2
-            set sourceTab to active tab of sourceWindow
-            set sourceURL to URL of sourceTab
-            if sourceURL is missing value or sourceURL is "" then return "empty-url"
-            make new tab at end of tabs of targetWindow with properties {URL:sourceURL}
-            set active tab index of targetWindow to (count of tabs of targetWindow)
-            set index of targetWindow to 1
+            set sourceTitle to ""
+            set sourceURL to ""
+            try
+                set sourceTitle to title of active tab of sourceWindow
+                set sourceURL to URL of active tab of sourceWindow
+            end try
+            set output to "SOURCE" & tabChar & (id of sourceWindow as text) & tabChar & my cleanText(sourceTitle, tabChar) & tabChar & sourceURL & linefeed
+            set targetNumber to 1
+            repeat with wi from 2 to (count of windows)
+                if targetNumber > 5 then exit repeat
+                set targetWindow to window wi
+                set tabTitle to ""
+                set tabURL to ""
+                set tabAudible to false
+                try
+                    set tabTitle to title of active tab of targetWindow
+                    set tabURL to URL of active tab of targetWindow
+                    set tabAudible to audible of active tab of targetWindow
+                end try
+                set windowBounds to bounds of targetWindow
+                set output to output & "TARGET" & tabChar & (id of targetWindow as text) & tabChar & (targetNumber as text) & tabChar & my cleanText(tabTitle, tabChar) & tabChar & tabURL & tabChar & (tabAudible as text) & tabChar & (item 1 of windowBounds as text) & tabChar & (item 2 of windowBounds as text) & tabChar & (item 3 of windowBounds as text) & tabChar & (item 4 of windowBounds as text) & linefeed
+                set targetNumber to targetNumber + 1
+            end repeat
+            return output
+        end tell
+
+        on cleanText(rawText, tabChar)
+            set text item delimiters to tabChar
+            set parts to text items of (rawText as text)
+            set text item delimiters to " "
+            set joinedText to parts as text
+            set text item delimiters to linefeed
+            set lineParts to text items of joinedText
+            set text item delimiters to " "
+            set joinedText to lineParts as text
+            set text item delimiters to ""
+            return joinedText
+        end cleanText
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output.isEmpty {
+            log("Chrome merge choice script returned empty \(error?.description ?? "")")
+            return nil
+        }
+        var sourceWindowID: Int?
+        var sourceTitle = ""
+        var sourceDomain = ""
+        var choices: [ChromeTabMergeWindowChoice] = []
+
+        for line in output.components(separatedBy: .newlines) where !line.isEmpty {
+            let parts = line.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\t")
+            if parts.first == "SOURCE", parts.count >= 4 {
+                sourceWindowID = Int(parts[1])
+                sourceTitle = parts[2]
+                sourceDomain = domainName(from: parts[3])
+            } else if parts.first == "TARGET", parts.count >= 10,
+                      let windowID = Int(parts[1]),
+                      let number = Int(parts[2]) {
+                let left = Double(parts[6]) ?? 0
+                let top = Double(parts[7]) ?? 0
+                let right = Double(parts[8]) ?? 0
+                let bottom = Double(parts[9]) ?? 0
+                let frame = CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
+
+                choices.append(
+                    ChromeTabMergeWindowChoice(
+                        id: windowID,
+                        number: number,
+                        title: parts[3],
+                        domain: domainName(from: parts[4]),
+                        position: chromeWindowPositionDescription(for: frame),
+                        isAudible: parts[5].lowercased() == "true"
+                    )
+                )
+            }
+        }
+
+        guard let sourceWindowID else { return nil }
+        return ChromeTabMergeChoiceSet(
+            sourceWindowID: sourceWindowID,
+            sourceTitle: sourceTitle,
+            sourceDomain: sourceDomain,
+            choices: choices
+        )
+    }
+
+    private func mergeActiveChromeTab(sourceWindowID: Int, intoWindowID targetWindowID: Int) {
+        if dragActiveChromeTab(sourceWindowID: sourceWindowID, intoWindowID: targetWindowID) {
+            activeSnapTarget = nil
+            activeSnapTargetUntil = Date.distantPast
+            lastStatus = "Merged Chrome tab into selected window."
+            log("Control-Up double press dragged Chrome tab into selected window \(targetWindowID)")
+            return
+        }
+
+        lastStatus = "Could not merge Chrome tab."
+        log("Control-Up double press merge drag failed")
+    }
+
+    private func detachActiveChromeTab() {
+        if moveActiveChromeTabToNewWindow() || dragActiveChromeTabOutToNewWindow() {
+            activeSnapTarget = nil
+            activeSnapTargetUntil = Date.distantPast
+            lastStatus = "Detached Chrome tab into its own window."
+            log("Control-Down double press dragged Chrome tab out to new window")
+            return
+        }
+
+        lastStatus = "Could not detach Chrome tab."
+        log("Control-Down double press detach drag failed")
+    }
+
+    private func moveActiveChromeTabToNewWindow() -> Bool {
+        let script = """
+        tell application id "com.google.Chrome"
+            if (count of windows) < 1 then return "no-window"
+            set sourceWindow to front window
+            if (count of tabs of sourceWindow) < 2 then return "one-tab"
+            set sourceWindowID to id of sourceWindow as text
             activate
-            if (count of tabs of sourceWindow) is less than or equal to 1 then
-                close sourceWindow
-            else
-                close sourceTab
-            end if
-            return "merged"
+        end tell
+        delay 0.05
+        tell application "System Events"
+            tell process "Google Chrome"
+                click menu item "Move Tab to New Window" of menu 1 of menu bar item "Tab" of menu bar 1
+            end tell
+        end tell
+        delay 0.18
+        tell application id "com.google.Chrome"
+            activate
+            if (count of windows) < 1 then return "missing-window"
+            set newWindowID to id of front window as text
+            return "moved|" & sourceWindowID & "|" & newWindowID
         end tell
         """
 
         var error: NSDictionary?
         let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
-        if output == "merged" {
-            activeSnapTarget = nil
-            activeSnapTargetUntil = Date.distantPast
-            lastStatus = "Merged Chrome tab into the window behind."
-            log("Control-Up double press merged Chrome tab into next window")
-        } else {
-            lastStatus = "Could not merge Chrome tab."
-            log("Control-Up double press merge failed \(error?.description ?? output)")
+        if output.hasPrefix("moved|") {
+            log("Chrome tab detach used Move Tab to New Window \(output)")
+            return true
         }
+
+        log("Chrome tab detach menu failed \(error?.description ?? output)")
+        return false
+    }
+
+    private func dragActiveChromeTabOutToNewWindow() -> Bool {
+        let script = """
+        tell application id "com.google.Chrome"
+            if (count of windows) < 1 then return "no-window"
+            set tabChar to ASCII character 9
+            set sourceWindow to front window
+            set sourceBounds to bounds of sourceWindow
+            set sourceIndex to active tab index of sourceWindow
+            set sourceCount to count of tabs of sourceWindow
+            if sourceCount < 2 then return "one-tab"
+            set index of sourceWindow to 1
+            activate
+            return (item 1 of sourceBounds as text) & tabChar & (item 2 of sourceBounds as text) & tabChar & (item 3 of sourceBounds as text) & tabChar & (item 4 of sourceBounds as text) & tabChar & (sourceIndex as text) & tabChar & (sourceCount as text)
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        guard error == nil else {
+            log("Chrome tab detach setup failed \(error?.description ?? "")")
+            return false
+        }
+
+        let parts = output.components(separatedBy: "\t")
+        guard parts.count >= 6,
+              let sourceLeft = Double(parts[0]),
+              let sourceTop = Double(parts[1]),
+              let sourceRight = Double(parts[2]),
+              let sourceBottom = Double(parts[3]),
+              let sourceIndex = Double(parts[4]),
+              let sourceCount = Double(parts[5]) else {
+            log("Chrome tab detach setup returned \(output)")
+            return false
+        }
+
+        let sourceWidth = max(320, sourceRight - sourceLeft)
+        let sourceHeight = max(240, sourceBottom - sourceTop)
+        let sourceTabWidth = min(240, max(72, (sourceWidth - 180) / max(1, sourceCount)))
+        let sourceX = sourceLeft + 16 + ((sourceIndex - 0.5) * sourceTabWidth)
+        let sourceY = sourceTop + 16
+        let endX = min(sourceRight - 160, max(sourceLeft + 160, sourceX))
+        let endY = min(sourceBottom - 90, sourceTop + max(180, min(300, sourceHeight * 0.38)))
+
+        postMouseDrag(from: CGPoint(x: sourceX, y: sourceY), to: CGPoint(x: endX, y: endY))
+        return true
+    }
+
+    private func dragActiveChromeTab(sourceWindowID: Int, intoWindowID targetWindowID: Int) -> Bool {
+        let script = """
+        tell application id "com.google.Chrome"
+            set tabChar to ASCII character 9
+            set sourceWindow to missing value
+            set targetWindow to missing value
+            repeat with candidateWindow in windows
+                if ((id of candidateWindow) as text) is "\(sourceWindowID)" then set sourceWindow to candidateWindow
+                if ((id of candidateWindow) as text) is "\(targetWindowID)" then set targetWindow to candidateWindow
+            end repeat
+            if sourceWindow is missing value then return "no-source"
+            if targetWindow is missing value then return "no-target"
+            set sourceBounds to bounds of sourceWindow
+            set targetBounds to bounds of targetWindow
+            set sourceIndex to active tab index of sourceWindow
+            set sourceCount to count of tabs of sourceWindow
+            set targetCount to count of tabs of targetWindow
+            set index of sourceWindow to 1
+            activate
+            return (item 1 of sourceBounds as text) & tabChar & (item 2 of sourceBounds as text) & tabChar & (item 3 of sourceBounds as text) & tabChar & (item 4 of sourceBounds as text) & tabChar & (sourceIndex as text) & tabChar & (sourceCount as text) & tabChar & (item 1 of targetBounds as text) & tabChar & (item 2 of targetBounds as text) & tabChar & (item 3 of targetBounds as text) & tabChar & (item 4 of targetBounds as text) & tabChar & (targetCount as text)
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        guard error == nil else {
+            log("Chrome tab drag setup failed \(error?.description ?? "")")
+            return false
+        }
+        let parts = output.components(separatedBy: "\t")
+        guard parts.count >= 11,
+              let sourceLeft = Double(parts[0]),
+              let sourceTop = Double(parts[1]),
+              let sourceRight = Double(parts[2]),
+              let targetLeft = Double(parts[6]),
+              let targetTop = Double(parts[7]),
+              let targetRight = Double(parts[8]),
+              let sourceIndex = Double(parts[4]),
+              let sourceCount = Double(parts[5]),
+              let targetCount = Double(parts[10]) else {
+            log("Chrome tab drag setup returned \(output)")
+            return false
+        }
+
+        let sourceWidth = max(320, sourceRight - sourceLeft)
+        let targetWidth = max(320, targetRight - targetLeft)
+        let sourceTabWidth = min(240, max(72, (sourceWidth - 180) / max(1, sourceCount)))
+        let targetTabWidth = min(240, max(72, (targetWidth - 180) / max(1, targetCount + 1)))
+        let sourceX = sourceLeft + 16 + ((sourceIndex - 0.5) * sourceTabWidth)
+        let sourceY = sourceTop + 16
+        let targetX = min(targetRight - 90, targetLeft + 16 + ((targetCount + 0.5) * targetTabWidth))
+        let targetY = targetTop + 16
+
+        postMouseDrag(from: CGPoint(x: sourceX, y: sourceY), to: CGPoint(x: targetX, y: targetY))
+
+        let focusScript = """
+        tell application id "com.google.Chrome"
+            repeat with candidateWindow in windows
+                if ((id of candidateWindow) as text) is "\(targetWindowID)" then
+                    set index of candidateWindow to 1
+                    exit repeat
+                end if
+            end repeat
+            activate
+        end tell
+        """
+        _ = NSAppleScript(source: focusScript)?.executeAndReturnError(nil)
+        return true
+    }
+
+    private func postMouseDrag(from start: CGPoint, to end: CGPoint) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(40_000)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left)?.post(tap: .cghidEventTap)
+        usleep(80_000)
+
+        for step in 1...18 {
+            let progress = CGFloat(step) / 18
+            let point = CGPoint(
+                x: start.x + ((end.x - start.x) * progress),
+                y: start.y + ((end.y - start.y) * progress)
+            )
+            CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
+            usleep(18_000)
+        }
+
+        usleep(90_000)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left)?.post(tap: .cghidEventTap)
+    }
+
+    private func domainName(from rawURL: String) -> String {
+        guard let url = URL(string: rawURL),
+              let host = url.host,
+              !host.isEmpty else {
+            return rawURL
+        }
+
+        if host.hasPrefix("www.") {
+            return String(host.dropFirst(4))
+        }
+        return host
+    }
+
+    private func chromeWindowPositionDescription(for frame: CGRect) -> String {
+        guard frame.width > 0 else { return "Window behind" }
+
+        let screen = NSScreen.screens
+            .map { screen -> (screen: NSScreen, overlap: CGFloat) in
+                let minX = max(screen.frame.minX, frame.minX)
+                let maxX = min(screen.frame.maxX, frame.maxX)
+                return (screen, max(0, maxX - minX))
+            }
+            .max { $0.overlap < $1.overlap }?
+            .screen
+            ?? NSScreen.main
+
+        guard let screen else { return "Window behind" }
+
+        let relativeX = (frame.midX - screen.frame.minX) / max(1, screen.frame.width)
+        let relativeWidth = frame.width / max(1, screen.frame.width)
+
+        if relativeWidth >= 0.82 {
+            return "Full screen"
+        }
+
+        if relativeWidth >= 0.42 {
+            return relativeX < 0.5 ? "Left half" : "Right half"
+        }
+
+        if relativeWidth >= 0.26 {
+            if relativeX < 0.34 { return "Left third" }
+            if relativeX > 0.66 { return "Right third" }
+            return "Middle third"
+        }
+
+        return "Window behind"
     }
 
     private func browserTabSnapDefinition(for target: SnapTarget) -> BrowserTabSnapDefinition? {
-        guard let app = NSWorkspace.shared.runningApplications.first(where: {
+        if let app = NSWorkspace.shared.runningApplications.first(where: {
             $0.processIdentifier == target.processIdentifier && !$0.isTerminated
-        }) else {
-            return nil
+        }),
+           let definition = browserTabSnapDefinitions.first(where: { $0.bundleIdentifier == app.bundleIdentifier }) {
+            return definition
         }
 
-        return browserTabSnapDefinitions.first { $0.bundleIdentifier == app.bundleIdentifier }
+        return browserTabSnapDefinitions.first { $0.appName == target.appName }
     }
 
     private func snapActiveBrowserTab(to side: SnapSide) {
@@ -3218,7 +3755,8 @@ final class ScreenShortcutController: ObservableObject {
             if fallback == "clicked" {
                 log("pressed YouTube theater mode via accessibility for \(definition.appName)")
             } else {
-                log("YouTube theater check failed for \(definition.appName), fallback \(fallback)")
+                let keyFallback = pressYouTubeTheaterKey(appName: definition.appName, usesChromeScripting: definition.usesChromeScripting)
+                log("YouTube theater check failed for \(definition.appName), fallback \(fallback), key \(keyFallback)")
             }
         } else if output == "theater" {
             log("pressed YouTube theater mode for \(definition.appName)")
@@ -3226,20 +3764,59 @@ final class ScreenShortcutController: ObservableObject {
             log("YouTube theater mode already active for \(definition.appName)")
         } else if output == "no-button" {
             let fallback = clickYouTubeTheaterButtonViaAccessibility(appName: definition.appName)
-            log("YouTube theater button fallback for \(definition.appName): \(fallback)")
+            if fallback == "clicked" {
+                log("YouTube theater button fallback for \(definition.appName): clicked")
+            } else {
+                let keyFallback = pressYouTubeTheaterKey(appName: definition.appName, usesChromeScripting: definition.usesChromeScripting)
+                log("YouTube theater button fallback for \(definition.appName): \(fallback), key \(keyFallback)")
+            }
+        } else if !output.isEmpty, output != "not-youtube" {
+            log("YouTube theater check returned \(output) for \(definition.appName)")
         }
     }
 
+    private func pressYouTubeTheaterKey(appName: String, usesChromeScripting: Bool) -> String {
+        let now = Date()
+        if let lastPress = lastYouTubeTheaterKeyPressAt[appName],
+           now.timeIntervalSince(lastPress) < 2.5 {
+            return "recently-pressed"
+        }
+
+        let tabReference = usesChromeScripting ? "active tab of front window" : "current tab of front window"
+        let urlExpression = usesChromeScripting ? "URL of \(tabReference)" : "URL of \(tabReference)"
+        let script = """
+        tell application "\(appName)"
+            if not (exists front window) then return "no-window"
+            set tabURL to \(urlExpression)
+            if tabURL does not contain "youtube.com/watch" and tabURL does not contain "youtu.be/" then return "not-youtube"
+            activate
+        end tell
+        delay 0.05
+        tell application "System Events"
+            keystroke "t"
+        end tell
+        return "pressed"
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if let error {
+            return "error \(error[NSAppleScript.errorNumber] ?? "")"
+        }
+        if output == "pressed" {
+            lastYouTubeTheaterKeyPressAt[appName] = now
+        }
+        return output.isEmpty ? "unknown" : output
+    }
+
     private func forceYouTubeTheaterModeWithRetries(in definition: BrowserTabSnapDefinition, windowID: String? = nil) {
-        let delays: [TimeInterval] = [0.25, 0.65, 1.15, 1.8]
-        for delay in delays {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self else { return }
-                if let windowID {
-                    _ = self.focusBrowserWindow(definition, windowID: windowID)
-                }
-                self.pressTheaterModeIfYouTube(in: definition)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            if let windowID {
+                _ = self.focusBrowserWindow(definition, windowID: windowID)
             }
+            let keyFallback = self.pressYouTubeTheaterKey(appName: definition.appName, usesChromeScripting: definition.usesChromeScripting)
+            self.log("YouTube theater key after snap for \(definition.appName): \(keyFallback)")
         }
     }
 
@@ -3433,6 +4010,134 @@ final class ScreenShortcutController: ObservableObject {
         }
 
         log("browser tab fixed half snap failed \(error?.description ?? output)")
+        return false
+    }
+
+    @discardableResult
+    private func setChromeStyleFrontWindowBounds(appName: String, frame: CGRect) -> Bool {
+        let left = Int(frame.minX.rounded(.toNearestOrAwayFromZero))
+        let top = Int(frame.minY.rounded(.toNearestOrAwayFromZero))
+        let right = Int(frame.maxX.rounded(.toNearestOrAwayFromZero))
+        let bottom = Int(frame.maxY.rounded(.toNearestOrAwayFromZero))
+
+        let script = """
+        tell application "\(appName)"
+            if not (exists front window) then return "no-window"
+            set bounds of front window to {\(left), \(top), \(right), \(bottom)}
+            activate
+            return "moved"
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output == "moved" {
+            log("Chrome-style front window bounds set \(frame)")
+            return true
+        }
+
+        log("Chrome-style front window bounds failed \(error?.description ?? output)")
+        return false
+    }
+
+    private func activeChromeStyleFrontWindowID(appName: String) -> String? {
+        guard !appName.isEmpty else { return nil }
+        let script = """
+        tell application "\(appName)"
+            if not (exists front window) then return ""
+            return id of front window as text
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output.isEmpty {
+            log("Chrome-style front window ID failed \(error?.description ?? "")")
+            return nil
+        }
+        return output
+    }
+
+    @discardableResult
+    private func setChromeStyleWindowBounds(appName: String, windowID: String, frame: CGRect) -> Bool {
+        let left = Int(frame.minX.rounded(.toNearestOrAwayFromZero))
+        let top = Int(frame.minY.rounded(.toNearestOrAwayFromZero))
+        let right = Int(frame.maxX.rounded(.toNearestOrAwayFromZero))
+        let bottom = Int(frame.maxY.rounded(.toNearestOrAwayFromZero))
+
+        let script = """
+        tell application "\(appName)"
+            set targetID to "\(windowID)"
+            repeat with browserWindow in windows
+                if (id of browserWindow as text) is targetID then
+                    set bounds of browserWindow to {\(left), \(top), \(right), \(bottom)}
+                    set index of browserWindow to 1
+                    activate
+                    return "moved"
+                end if
+            end repeat
+            return "missing-window"
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output == "moved" {
+            log("Chrome-style window bounds set \(windowID) \(frame)")
+            return true
+        }
+
+        log("Chrome-style window bounds failed \(windowID) \(error?.description ?? output)")
+        return false
+    }
+
+    @discardableResult
+    private func zoomChromeStyleFrontWindow(appName: String) -> Bool {
+        let script = """
+        tell application "\(appName)"
+            if not (exists front window) then return "no-window"
+            set zoomed of front window to true
+            activate
+            return "zoomed"
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output == "zoomed" {
+            log("Chrome-style front window zoomed")
+            return true
+        }
+
+        log("Chrome-style front window zoom failed \(error?.description ?? output)")
+        return false
+    }
+
+    @discardableResult
+    private func zoomChromeStyleWindow(appName: String, windowID: String) -> Bool {
+        let script = """
+        tell application "\(appName)"
+            set targetID to "\(windowID)"
+            repeat with browserWindow in windows
+                if (id of browserWindow as text) is targetID then
+                    set zoomed of browserWindow to true
+                    set index of browserWindow to 1
+                    activate
+                    return "zoomed"
+                end if
+            end repeat
+            return "missing-window"
+        end tell
+        """
+
+        var error: NSDictionary?
+        let output = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? ""
+        if output == "zoomed" {
+            log("Chrome-style window zoomed \(windowID)")
+            return true
+        }
+
+        log("Chrome-style window zoom failed \(windowID) \(error?.description ?? output)")
         return false
     }
 
@@ -4002,6 +4707,7 @@ final class ScreenShortcutController: ObservableObject {
                 guard let self, self.snapAnimationTokens[snapKey] == token else { return }
                 Self.setChromeFrontWindowBounds(frame)
                 if index == frames.count - 1, side == .up {
+                    Self.zoomChromeFrontWindow()
                     Self.reassertChromeFullScreenBounds(targetFrame, snapKey: snapKey, token: token, controller: self)
                 } else if index == frames.count - 1, side == .down {
                     self.snapAnimationTokens.removeValue(forKey: snapKey)
@@ -4070,6 +4776,7 @@ final class ScreenShortcutController: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak controller] in
                 guard let controller, controller.snapAnimationTokens[snapKey] == token else { return }
                 Self.setChromeFrontWindowBounds(targetFrame)
+                Self.zoomChromeFrontWindow()
                 if index == delays.count - 1 {
                     controller.snapAnimationTokens.removeValue(forKey: snapKey)
                 }
@@ -4087,6 +4794,23 @@ final class ScreenShortcutController: ObservableObject {
         tell application id "com.google.Chrome"
             if (count of windows) > 0 then
                 set bounds of front window to {\(left), \(top), \(right), \(bottom)}
+            end if
+        end tell
+        """
+
+        Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", script]
+            try? process.run()
+        }
+    }
+
+    private nonisolated static func zoomChromeFrontWindow() {
+        let script = """
+        tell application id "com.google.Chrome"
+            if (count of windows) > 0 then
+                set zoomed of front window to true
             end if
         end tell
         """
@@ -4269,6 +4993,8 @@ final class ScreenShortcutController: ObservableObject {
         let relativeMinY = source.height == 0 ? 0 : (windowFrame.minY - source.minY) / source.height
         let relativeWidth = source.width == 0 ? 1 : windowFrame.width / source.width
         let relativeHeight = source.height == 0 ? 1 : windowFrame.height / source.height
+        let isFullWidth = relativeWidth >= 0.86 || (touchesLeft && touchesRight)
+        let isFullHeight = relativeHeight >= 0.82 || (touchesTop && touchesBottom)
         let isHalfWidth = abs(relativeWidth - 0.5) <= 0.08
         let isLeftHalf = touchesLeft && isHalfWidth && !touchesRight
         let isRightHalf = touchesRight && isHalfWidth && !touchesLeft
@@ -4276,19 +5002,19 @@ final class ScreenShortcutController: ObservableObject {
         let maxWidth = max(160, target.width)
         let maxHeight = max(120, target.height)
         let width: CGFloat
-        if touchesLeft && touchesRight {
+        if isFullWidth {
             width = target.width
         } else if isLeftHalf || isRightHalf {
             width = target.width / 2
         } else {
             width = min(max(160, target.width * relativeWidth), maxWidth)
         }
-        let height = touchesTop && touchesBottom
+        let height = isFullHeight
             ? target.height
             : min(max(120, target.height * relativeHeight), maxHeight)
 
         let rawX: CGFloat
-        if touchesLeft {
+        if isFullWidth || touchesLeft {
             rawX = target.minX
         } else if touchesRight {
             rawX = target.maxX - width
@@ -4297,7 +5023,7 @@ final class ScreenShortcutController: ObservableObject {
         }
 
         let rawY: CGFloat
-        if touchesTop {
+        if isFullHeight || touchesTop {
             rawY = target.minY
         } else if touchesBottom {
             rawY = target.maxY - height

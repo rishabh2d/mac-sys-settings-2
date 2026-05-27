@@ -390,6 +390,15 @@ private struct CompactSettingsPanelView: View {
                             _ = await WorkflowShortcutStore.run(.saveTonight)
                         }
                     }
+                case .presentation:
+                    CompactToggleRow(title: "Cursor Highlight", subtitle: "Highlight clicks live during demos, meetings, recordings, and UX reviews.", isOn: Binding(
+                        get: { ClickLightStore.isEnabled },
+                        set: { ClickLightStore.setEnabled($0) }
+                    ))
+                    CompactButtonRow(title: "Test pulse", subtitle: "Fire a sample highlight at the current cursor position.", value: ClickLightController.shared.lastStatus) {
+                        ClickLightController.shared.testPulse()
+                    }
+                    CompactInfoBlock(title: "Accessibility", subtitle: "Required to detect clicks outside this app.", value: AXIsProcessTrusted() ? "Allowed" : "Needed")
                 case .finder:
                     CompactToggleRow(title: "Sort chooser shortcut", subtitle: "Control-Option-Command-S opens Finder sort choices.", isOn: Binding(
                         get: { FinderSortShortcutStore.isEnabled },

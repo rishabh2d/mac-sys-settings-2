@@ -66,6 +66,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case history
     case backup
     case workflows
+    case presentation
     case finder
     case shelf
     case screen
@@ -90,6 +91,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "History"
         case .backup: return "Backup"
         case .workflows: return "Shortcuts"
+        case .presentation: return "Presentation"
         case .finder: return "Finder"
         case .shelf: return "Shelf"
         case .screen: return "Screen"
@@ -114,6 +116,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "Recent changes"
         case .backup: return "Export/import"
         case .workflows: return "One-click routines"
+        case .presentation: return "Meetings"
         case .finder: return "Folder sorting"
         case .shelf: return "Park files"
         case .screen: return "Window shortcuts"
@@ -138,6 +141,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "clock.arrow.circlepath"
         case .backup: return "externaldrive.fill"
         case .workflows: return "bolt.rectangle.fill"
+        case .presentation: return "cursorarrow.click.2"
         case .finder: return "folder.fill"
         case .shelf: return "tray.full.fill"
         case .screen: return "rectangle.on.rectangle"
@@ -175,6 +179,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             return [Color(red: 0.36, green: 0.74, blue: 0.68), Color(red: 0.12, green: 0.45, blue: 0.52)]
         case .workflows:
             return [Color(red: 1.00, green: 0.64, blue: 0.20), Color(red: 0.82, green: 0.28, blue: 0.16)]
+        case .presentation:
+            return [Color(red: 0.16, green: 0.72, blue: 0.88), Color(red: 0.18, green: 0.34, blue: 0.78)]
         case .finder:
             return [Color(red: 0.21, green: 0.62, blue: 0.92), Color(red: 0.10, green: 0.36, blue: 0.78)]
         case .shelf:
@@ -348,6 +354,8 @@ private struct SettingsDetailView: View {
             SettingsBackupDetailView()
         case .workflows:
             WorkflowShortcutsSettingsDetailView()
+        case .presentation:
+            PresentationSettingsDetailView()
         case .finder:
             FinderSettingsDetailView()
         case .shelf:
@@ -381,7 +389,7 @@ private struct SetupCostSettingsDetailView: View {
                             "Move active app between monitors",
                             "Control-Arrow window sizing",
                             "Pin FaceTime",
-                            "Command-H focused-window hide",
+                            "Command-H app hide toggle",
                             "Command-Shift-H current monitor hide",
                             "Window Switcher",
                             "Hover to focus",
@@ -389,7 +397,8 @@ private struct SetupCostSettingsDetailView: View {
                             "Fullscreen Escape",
                             "Layouts / Modes",
                             "Finder sort shortcut",
-                            "File Shelf"
+                            "File Shelf",
+                            "Cursor Highlight"
                         ],
                         status: accessibilityTrusted ? "Allowed" : "Needed",
                         isAllowed: accessibilityTrusted,
@@ -484,7 +493,7 @@ private struct SetupCostSettingsDetailView: View {
                         settingNames: [
                             "Finder sort shortcut",
                             "Downloads newest-first opener",
-                            "Command-H focused-window hide",
+                            "Command-H app hide toggle",
                             "Layouts / Modes"
                         ],
                         status: "Open",
@@ -893,6 +902,7 @@ private struct DownloadsSettingsDetailView: View {
 private struct ClipboardSettingsDetailView: View {
     @ObservedObject var controller: ScreenshotClipboardController
     @State private var copyScreenshotsEnabled = ScreenshotClipboardStore.isEnabled
+    @State private var screenshotDropPickerEnabled = ScreenshotClipboardStore.dropPickerEnabled
     @State private var autoClearEnabled = ScreenshotClipboardStore.autoClearEnabled
     @State private var autoClearMinutes = ScreenshotClipboardStore.autoClearMinutes
 
@@ -914,6 +924,20 @@ private struct ClipboardSettingsDetailView: View {
                             .labelsHidden()
                             .onChange(of: copyScreenshotsEnabled) { _, newValue in
                                 ScreenshotClipboardStore.setEnabled(newValue)
+                            }
+                    }
+
+                    Divider()
+
+                    SettingsToggleRow(
+                        title: "Show app drop picker",
+                        subtitle: "After Command-Shift-3 saves a screenshot, show a small app list so you can drag the screenshot file into Codex, Chrome, or another open app."
+                    ) {
+                        Toggle("", isOn: $screenshotDropPickerEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .onChange(of: screenshotDropPickerEnabled) { _, newValue in
+                                ScreenshotClipboardStore.setDropPickerEnabled(newValue)
                             }
                     }
 
@@ -975,6 +999,7 @@ private struct ClipboardSettingsDetailView: View {
             ) {
                 StatusGrid(items: [
                     StatusItem(title: "Copy Mode", value: copyScreenshotsEnabled ? "On" : "Off", state: copyScreenshotsEnabled ? .good : .warning),
+                    StatusItem(title: "Drop Picker", value: screenshotDropPickerEnabled ? "On" : "Off", state: screenshotDropPickerEnabled ? .good : .warning),
                     StatusItem(title: "Watcher", value: controller.isWatching ? "On" : "Off", state: controller.isWatching ? .good : .warning),
                     StatusItem(title: "Auto-clear", value: autoClearEnabled ? "\(autoClearMinutes)m" : "Off", state: autoClearEnabled ? .good : .warning),
                     StatusItem(title: "Last Screenshot", value: controller.lastCopiedFileName, state: controller.lastCopiedFileName == "None" ? .warning : .good),
@@ -984,6 +1009,7 @@ private struct ClipboardSettingsDetailView: View {
         }
         .onAppear {
             copyScreenshotsEnabled = ScreenshotClipboardStore.isEnabled
+            screenshotDropPickerEnabled = ScreenshotClipboardStore.dropPickerEnabled
             autoClearEnabled = ScreenshotClipboardStore.autoClearEnabled
             autoClearMinutes = ScreenshotClipboardStore.autoClearMinutes
         }
@@ -1345,6 +1371,136 @@ private struct WorkflowShortcutsSettingsDetailView: View {
                 }
             }
         }
+    }
+}
+
+private struct PresentationSettingsDetailView: View {
+    @ObservedObject private var clickLightController = ClickLightController.shared
+    @State private var clickLightEnabled = ClickLightStore.isEnabled
+    @State private var clickLightSize = ClickLightStore.size
+    @State private var clickLightDuration = ClickLightStore.duration
+    @State private var clickLightIntensity = ClickLightStore.intensity
+    @State private var accessibilityTrusted = AXIsProcessTrusted()
+
+    var body: some View {
+        SettingsPage(title: "Presentation", subtitle: "Meeting and demo tools that make live screen sharing easier to follow.") {
+            SettingsSectionBlock(
+                title: "Cursor Highlight",
+                subtitle: "Show a clean visual pulse wherever you click during demos, recordings, UX reviews, and meetings."
+            ) {
+                SettingsGroup {
+                    SettingsToggleRow(
+                        title: "Highlight clicks live",
+                        subtitle: "Shows separate pulses for press, release, right-click, and drag across Mac apps."
+                    ) {
+                        Toggle("", isOn: $clickLightEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .onChange(of: clickLightEnabled) { _, newValue in
+                                ClickLightStore.setEnabled(newValue)
+                            }
+                    }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    SettingsActionRow(
+                        title: "Test pulse",
+                        subtitle: "Fire a sample click pulse at the current cursor position.",
+                        value: clickLightController.lastStatus,
+                        buttonTitle: "Test"
+                    ) {
+                        clickLightController.testPulse()
+                    }
+                }
+            }
+
+            SettingsSectionBlock(
+                title: "Look",
+                subtitle: "Tune the pulse so it is obvious on calls without feeling noisy."
+            ) {
+                SettingsGroup {
+                    clickLightSliderRow(
+                        title: "Size",
+                        subtitle: "Diameter of the click highlight.",
+                        value: $clickLightSize,
+                        range: 28...96,
+                        displayValue: "\(Int(clickLightSize.rounded())) pt"
+                    ) { ClickLightStore.setSize($0) }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    clickLightSliderRow(
+                        title: "Duration",
+                        subtitle: "How long each pulse stays visible.",
+                        value: $clickLightDuration,
+                        range: 0.20...1.20,
+                        displayValue: String(format: "%.2fs", clickLightDuration)
+                    ) { ClickLightStore.setDuration($0) }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    clickLightSliderRow(
+                        title: "Intensity",
+                        subtitle: "Opacity and strength of the highlight.",
+                        value: $clickLightIntensity,
+                        range: 0.35...1.00,
+                        displayValue: "\(Int((clickLightIntensity * 100).rounded()))%"
+                    ) { ClickLightStore.setIntensity($0) }
+                }
+            }
+
+            SettingsSectionBlock(
+                title: "Current State",
+                subtitle: ""
+            ) {
+                StatusGrid(items: [
+                    StatusItem(title: "Cursor Highlight", value: clickLightEnabled ? "On" : "Off", state: clickLightEnabled ? .good : .warning),
+                    StatusItem(title: "Accessibility", value: accessibilityTrusted ? "Allowed" : "Needed", state: accessibilityTrusted ? .good : .warning),
+                    StatusItem(title: "Status", value: clickLightController.lastStatus, state: clickLightController.lastStatus == "Needs Accessibility" ? .warning : .good)
+                ])
+            }
+        }
+        .onAppear(perform: refresh)
+        .onReceive(NotificationCenter.default.publisher(for: ClickLightStore.didChangeNotification)) { _ in
+            refresh()
+        }
+    }
+
+    private func refresh() {
+        clickLightEnabled = ClickLightStore.isEnabled
+        clickLightSize = ClickLightStore.size
+        clickLightDuration = ClickLightStore.duration
+        clickLightIntensity = ClickLightStore.intensity
+        accessibilityTrusted = AXIsProcessTrusted()
+    }
+
+    private func clickLightSliderRow(
+        title: String,
+        subtitle: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        displayValue: String,
+        onChange: @escaping (Double) -> Void
+    ) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            RowText(title: title, subtitle: subtitle)
+            Spacer(minLength: 12)
+            Slider(value: value, in: range)
+                .frame(width: 150)
+                .onChange(of: value.wrappedValue) { _, newValue in
+                    onChange(newValue)
+                }
+            Text(displayValue)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 48, alignment: .trailing)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(minHeight: 46)
     }
 }
 
@@ -2257,6 +2413,7 @@ private struct ScreenSettingsDetailView: View {
     @State private var shortcut = ScreenShortcut.current()
     @State private var spaceSwitchingEnabled = SpaceSwitchShortcutStore.isEnabled
     @State private var controlArrowSnapEnabled = ControlArrowSnapStore.isEnabled
+    @State private var snapAfterMonitorDragEnabled = ControlArrowSnapStore.snapAfterMonitorDragEnabled
     @State private var optionUpSnapAliasEnabled = UpSnapAliasStore.optionUpEnabled
     @State private var commandUpSnapAliasEnabled = UpSnapAliasStore.commandUpEnabled
     @State private var browserTabSnapEnabled = BrowserTabSnapStore.isEnabled
@@ -2266,7 +2423,6 @@ private struct ScreenSettingsDetailView: View {
     @State private var monitorMoveOthersShortcutEnabled = MonitorMoveOthersShortcutStore.isEnabled
     @State private var desktopIconsShortcutEnabled = DesktopIconsShortcutStore.isEnabled
     @State private var commandHideToggleEnabled = CommandHideToggleStore.isEnabled
-    @State private var commandHideFocusedWindowOnly = CommandHideToggleStore.hidesFocusedWindowOnly
     @State private var commandShiftHideMonitorEnabled = CommandShiftHideMonitorStore.isEnabled
     @State private var focusedDisplayMissionControlEnabled = DisplaySpacesStore.missionControlFocusedDisplayOnly
     @State private var hoverFocusEnabled = HoverFocusStore.isEnabled
@@ -2340,6 +2496,22 @@ private struct ScreenSettingsDetailView: View {
                                 if newValue {
                                     spaceSwitchingEnabled = SpaceSwitchShortcutStore.isEnabled
                                 }
+                            }
+                    }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    SettingsToggleRow(
+                        title: "Fill after dragging to another monitor",
+                        subtitle: "Optional step: when you drag a window onto another display and release it there, Mac Sys Settings 2 fills that monitor like Control-Up."
+                    ) {
+                        Toggle("", isOn: $snapAfterMonitorDragEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .disabled(!controlArrowSnapEnabled)
+                            .onChange(of: snapAfterMonitorDragEnabled) { _, newValue in
+                                ControlArrowSnapStore.setSnapAfterMonitorDragEnabled(newValue)
                             }
                     }
 
@@ -2488,7 +2660,7 @@ private struct ScreenSettingsDetailView: View {
                 SettingsGroup {
                     SettingsToggleRow(
                         title: "\(PinWindowStore.shortcut.displayText) pins FaceTime",
-                        subtitle: "Press Control-Option-P to keep FaceTime floating above normal windows. This works for any focused window, not just FaceTime."
+                        subtitle: "Press Control-Option-P to keep the focused window above normal windows. Press it again to unpin."
                     ) {
                         Toggle("", isOn: $pinWindowEnabled)
                             .toggleStyle(.switch)
@@ -2499,7 +2671,6 @@ private struct ScreenSettingsDetailView: View {
                     }
 
                     Divider()
-                        .padding(.leading, 10)
 
                     SettingsActionRow(
                         title: "Pin or unpin now",
@@ -2511,7 +2682,6 @@ private struct ScreenSettingsDetailView: View {
                     }
 
                     Divider()
-                        .padding(.leading, 10)
 
                     SettingsActionRow(
                         title: "Unpin all windows",
@@ -2829,20 +2999,6 @@ private struct ScreenSettingsDetailView: View {
                     Divider()
 
                     SettingsToggleRow(
-                        title: "Command-H hides focused window only",
-                        subtitle: "Optional step: minimize only the window you are on instead of hiding every window from that app. Better for Chrome, Zoom, and multi-monitor work."
-                    ) {
-                        Toggle("", isOn: $commandHideFocusedWindowOnly)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .onChange(of: commandHideFocusedWindowOnly) { _, newValue in
-                                CommandHideToggleStore.setHidesFocusedWindowOnly(newValue)
-                            }
-                    }
-
-                    Divider()
-
-                    SettingsToggleRow(
                         title: "Command-Shift-H hides this monitor",
                         subtitle: "Press Command-Shift-H to hide every visible app on the current monitor except the focused app."
                     ) {
@@ -2876,7 +3032,7 @@ private struct ScreenSettingsDetailView: View {
                     StatusItem(title: "Auto Key", value: autoKeyPressEnabled ? autoKeyPressKeyName : "Off", state: autoKeyPressEnabled ? .good : .warning),
                     StatusItem(title: "Audio Tab", value: audioTabJumpEnabled ? "On" : "Off", state: audioTabJumpEnabled ? .good : .warning),
                     StatusItem(title: "Desktop Icons", value: desktopIconsShortcutEnabled ? "On" : "Off", state: desktopIconsShortcutEnabled ? .good : .warning),
-                    StatusItem(title: "Command-H", value: commandHideToggleEnabled ? (commandHideFocusedWindowOnly ? "Window" : "App") : "System", state: commandHideToggleEnabled ? .good : .warning),
+                    StatusItem(title: "Command-H", value: commandHideToggleEnabled ? "App" : "System", state: commandHideToggleEnabled ? .good : .warning),
                     StatusItem(title: "Command-Shift-H", value: commandShiftHideMonitorEnabled ? "Monitor" : "Off", state: commandShiftHideMonitorEnabled ? .good : .warning),
                     StatusItem(title: "Spaces Shortcut", value: spaceSwitchingEnabled ? "On" : "Off", state: spaceSwitchingEnabled ? .warning : .good),
                     StatusItem(title: "Mission Control", value: focusedDisplayMissionControlEnabled ? "Per Display" : "Spans", state: focusedDisplayMissionControlEnabled ? .good : .warning)
@@ -2896,6 +3052,7 @@ private struct ScreenSettingsDetailView: View {
             shortcut = ScreenShortcut.current()
             spaceSwitchingEnabled = SpaceSwitchShortcutStore.isEnabled
             controlArrowSnapEnabled = ControlArrowSnapStore.isEnabled
+            snapAfterMonitorDragEnabled = ControlArrowSnapStore.snapAfterMonitorDragEnabled
             optionUpSnapAliasEnabled = UpSnapAliasStore.optionUpEnabled
             commandUpSnapAliasEnabled = UpSnapAliasStore.commandUpEnabled
             browserTabSnapEnabled = BrowserTabSnapStore.isEnabled
@@ -2905,7 +3062,6 @@ private struct ScreenSettingsDetailView: View {
             monitorMoveOthersShortcutEnabled = MonitorMoveOthersShortcutStore.isEnabled
             desktopIconsShortcutEnabled = DesktopIconsShortcutStore.isEnabled
             commandHideToggleEnabled = CommandHideToggleStore.isEnabled
-            commandHideFocusedWindowOnly = CommandHideToggleStore.hidesFocusedWindowOnly
             commandShiftHideMonitorEnabled = CommandShiftHideMonitorStore.isEnabled
             focusedDisplayMissionControlEnabled = DisplaySpacesStore.missionControlFocusedDisplayOnly
             hoverFocusEnabled = HoverFocusStore.isEnabled
@@ -3984,7 +4140,7 @@ private enum ShortcutConflictCatalog {
             ("Window layout presets", UInt32(kVK_ANSI_M), UInt32(controlKey | optionKey | cmdKey)),
             ("Autoscroll chooser", UInt32(kVK_ANSI_A), UInt32(controlKey | optionKey | cmdKey)),
             ("File shelf", UInt32(kVK_ANSI_Y), UInt32(cmdKey | optionKey | shiftKey)),
-            ("Hide focused window", UInt32(kVK_ANSI_H), UInt32(cmdKey)),
+            ("Hide app", UInt32(kVK_ANSI_H), UInt32(cmdKey)),
             ("Hide other apps on monitor", UInt32(kVK_ANSI_H), UInt32(cmdKey | shiftKey)),
             ("Control-arrow window sizing", UInt32(kVK_LeftArrow), UInt32(controlKey)),
             ("Control-arrow window sizing", UInt32(kVK_RightArrow), UInt32(controlKey)),

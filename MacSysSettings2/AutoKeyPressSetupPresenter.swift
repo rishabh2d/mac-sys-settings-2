@@ -89,7 +89,7 @@ final class AutoKeyPressSetupPresenter {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.contentView = NSHostingView(rootView: root)
 
         if let screen = NSScreen.main {
@@ -203,9 +203,6 @@ private struct AutoKeyPressSetupView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(Color.black.opacity(0.86))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }

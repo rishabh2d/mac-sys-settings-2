@@ -17,7 +17,7 @@ final class DownloadsPreviewPresenter {
     private var representedURL: URL?
     private var isHovering = false
 
-    func show(fileURL: URL) {
+    func show(fileURL: URL, on screen: NSScreen? = nil) {
         representedURL = fileURL
 
         let panel = makePanelIfNeeded()
@@ -32,7 +32,7 @@ final class DownloadsPreviewPresenter {
                 }
             )
         )
-        position(panel)
+        position(panel, on: screen)
 
         dismissTask?.cancel()
         panel.alphaValue = 0
@@ -60,7 +60,7 @@ final class DownloadsPreviewPresenter {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
@@ -71,8 +71,9 @@ final class DownloadsPreviewPresenter {
         return panel
     }
 
-    private func position(_ panel: NSPanel) {
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+    private func position(_ panel: NSPanel, on preferredScreen: NSScreen?) {
+        let screen = preferredScreen
+            ?? NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
             ?? NSScreen.main
             ?? NSScreen.screens.first
 
@@ -174,11 +175,7 @@ private struct DownloadsPreviewView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
         )
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.black.opacity(0.10), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 20, y: 10)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onHover(perform: onHoverChanged)
         .onDrag {
             onDragStarted()

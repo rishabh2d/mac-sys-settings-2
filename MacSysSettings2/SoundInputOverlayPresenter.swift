@@ -57,7 +57,7 @@ final class SoundInputOverlayPresenter {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
@@ -118,7 +118,10 @@ private struct SoundInputOverlayView: View {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
                         .frame(width: 26, height: 26)
-                        .background(Circle().fill(.white.opacity(0.12)))
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(.white.opacity(0.12))
+                        )
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.white.opacity(0.8))
@@ -206,12 +209,8 @@ private struct SoundInputOverlayView: View {
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color.black.opacity(0.82))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                }
         )
-        .shadow(color: .black.opacity(0.34), radius: 28, y: 16)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .onAppear {
             refreshDevices()
         }

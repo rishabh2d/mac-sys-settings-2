@@ -146,7 +146,7 @@ final class AutoScrollOverlayPresenter {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .statusBar
         panel.hidesOnDeactivate = false
         panel.isFloatingPanel = true
@@ -214,10 +214,15 @@ private struct AutoScrollOverlayView: View {
 
                 Button(action: onCancel) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 14, weight: .bold))
+                        .frame(width: 34, height: 34)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.white.opacity(0.12))
+                        )
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white.opacity(0.76))
+                .foregroundStyle(.white.opacity(0.86))
             }
 
             VStack(spacing: 12) {
@@ -277,11 +282,7 @@ private struct AutoScrollOverlayView: View {
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color.black.opacity(0.88))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
-                )
         )
-        .shadow(color: .black.opacity(0.28), radius: 26, y: 12)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
