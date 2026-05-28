@@ -259,6 +259,7 @@
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MacSysSettings2 uses Bluetooth to turn Bluetooth off during sleep when enabled.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "MacSysSettings2 uses Bluetooth to turn Bluetooth off during sleep when enabled.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "MacSysSettings2 records temporary voice backups only when Voice Backup is enabled.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -292,6 +293,7 @@
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "MacSysSettings2 uses Bluetooth to turn Bluetooth off during sleep when enabled.";
 				INFOPLIST_KEY_NSBluetoothPeripheralUsageDescription = "MacSysSettings2 uses Bluetooth to turn Bluetooth off during sleep when enabled.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "MacSysSettings2 records temporary voice backups only when Voice Backup is enabled.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

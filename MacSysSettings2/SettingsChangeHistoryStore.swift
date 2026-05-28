@@ -165,6 +165,7 @@ enum SettingsChangeHistoryStore {
             app("mic.bluetoothSleep", "Bluetooth off during sleep") { BluetoothSleepStore.isEnabled.onOff },
             app("mic.bluetoothSleepBatteryOnly", "Bluetooth sleep only on battery") { BluetoothSleepStore.onlyOnBattery.onOff },
             app("mic.networkWarning", "Mic Wi-Fi warning") { MicNetworkWarningStore.isEnabled.onOff },
+            app("mic.voiceBackup", "Voice Backup") { VoiceBackupStore.isEnabled.onOff },
             app("layouts.count", "Saved modes") { "\(WindowLayoutStore.loadModes().count)" },
             app("personal.count", "Personal settings") { "\(PersonalSettingsStore.load().count)" },
             mac("mac.dock.mineffect", "Dock minimize effect") { defaultsRead("com.apple.dock", "mineffect") },

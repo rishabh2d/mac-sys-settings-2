@@ -66,6 +66,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case history
     case backup
     case workflows
+    case agent
     case presentation
     case finder
     case shelf
@@ -91,6 +92,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "History"
         case .backup: return "Backup"
         case .workflows: return "Shortcuts"
+        case .agent: return "Agent Settings"
         case .presentation: return "Presentation"
         case .finder: return "Finder"
         case .shelf: return "Shelf"
@@ -116,6 +118,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .history: return "Recent changes"
         case .backup: return "Export/import"
         case .workflows: return "One-click routines"
+        case .agent: return "Codex / ChatGPT"
         case .presentation: return "Meetings"
         case .finder: return "Folder sorting"
         case .shelf: return "Park files"
@@ -140,7 +143,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .clipboard: return "doc.on.clipboard.fill"
         case .history: return "clock.arrow.circlepath"
         case .backup: return "externaldrive.fill"
-        case .workflows: return "bolt.rectangle.fill"
+        case .workflows: return "command.circle.fill"
+        case .agent: return "cpu.fill"
         case .presentation: return "cursorarrow.click.2"
         case .finder: return "folder.fill"
         case .shelf: return "tray.full.fill"
@@ -179,6 +183,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             return [Color(red: 0.36, green: 0.74, blue: 0.68), Color(red: 0.12, green: 0.45, blue: 0.52)]
         case .workflows:
             return [Color(red: 1.00, green: 0.64, blue: 0.20), Color(red: 0.82, green: 0.28, blue: 0.16)]
+        case .agent:
+            return [Color(red: 0.34, green: 0.76, blue: 0.95), Color(red: 0.20, green: 0.36, blue: 0.80)]
         case .presentation:
             return [Color(red: 0.16, green: 0.72, blue: 0.88), Color(red: 0.18, green: 0.34, blue: 0.78)]
         case .finder:
@@ -203,6 +209,15 @@ private struct SettingsSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    CompactPanelController.shared.show()
+                } label: {
+                    SidebarRow(section: .compactPanel, isSelected: false)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(SettingsSection.compactPanel.title)
+                .accessibilityAddTraits(.isButton)
+
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 13, weight: .medium))
@@ -255,13 +270,9 @@ private struct SettingsSidebar: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(SettingsSection.allCases) { section in
+                    ForEach(SettingsSection.allCases.filter { $0 != .compactPanel }) { section in
                         Button {
-                            if section == .compactPanel {
-                                CompactPanelController.shared.show()
-                            } else {
-                                selection = section
-                            }
+                            selection = section
                         } label: {
                             SidebarRow(section: section, isSelected: selection == section)
                         }
@@ -354,6 +365,8 @@ private struct SettingsDetailView: View {
             SettingsBackupDetailView()
         case .workflows:
             WorkflowShortcutsSettingsDetailView()
+        case .agent:
+            AgentSettingsDetailView()
         case .presentation:
             PresentationSettingsDetailView()
         case .finder:
@@ -3455,6 +3468,233 @@ private struct MicSettingsDetailView: View {
     }
 }
 
+private struct AgentSettingsDetailView: View {
+    @ObservedObject private var voiceBackupController = VoiceBackupController.shared
+    @State private var voiceBackupEnabled = VoiceBackupStore.isEnabled
+
+    var body: some View {
+        SettingsPage(title: "Agent Settings", subtitle: "Backups and helpers for Codex, ChatGPT, Wispr Flow, and other voice-first agent workflows.") {
+            SettingsSectionBlock(
+                title: "Voice Backup",
+                subtitle: "Keeps the last three temporary voice clips in case Wi-Fi is off, the app did not hear you, focus changed, Escape cancelled the recording, or transcription failed."
+            ) {
+                SettingsGroup {
+                    SettingsToggleRow(
+                        title: "Back up mic sessions",
+                        subtitle: "When another app starts using the mic, Mac Sys Settings 2 records the same microphone input into a real Voice Backups folder, shows the newest three clips, and deletes older files directly."
+                    ) {
+                        Toggle("", isOn: $voiceBackupEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .onChange(of: voiceBackupEnabled) { _, newValue in
+                                VoiceBackupStore.setEnabled(newValue)
+                            }
+                    }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    SettingsActionRow(
+                        title: "Voice Backups folder",
+                        subtitle: voiceBackupController.directory.path,
+                        value: "\(voiceBackupController.clips.count) clips",
+                        buttonTitle: "Reveal"
+                    ) {
+                        voiceBackupController.revealFolder()
+                    }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    SettingsActionRow(
+                        title: "OpenAI transcription key",
+                        subtitle: "Only needed if you press Transcribe. Voice Backup does not transcribe automatically.",
+                        value: VoiceBackupStore.openAIKey() == nil ? "Not connected" : "Connected",
+                        buttonTitle: "Connect"
+                    ) {
+                        voiceBackupController.requestOpenAIKey()
+                    }
+                }
+            }
+
+            SettingsSectionBlock(
+                title: "Recent Voice Backups",
+                subtitle: "Temporary audio clips only. Transcripts appear under the clip after you ask for them."
+            ) {
+                SettingsGroup {
+                    if voiceBackupController.clips.isEmpty {
+                        SettingsInfoRow(
+                            title: "No backups yet",
+                            subtitle: voiceBackupEnabled ? "Start recording in Codex, ChatGPT, Wispr Flow, WhatsApp, or another mic app." : "Turn Voice Backup on to keep the last three mic sessions.",
+                            value: voiceBackupController.isRecording ? "Recording" : "Empty"
+                        )
+                    } else {
+                        ForEach(voiceBackupController.clips) { clip in
+                            VoiceBackupClipRow(
+                                clip: clip,
+                                onTranscribe: { voiceBackupController.transcribe(clip) },
+                                onCopyAudio: { voiceBackupController.copyClipFile(clip) },
+                                onDelete: { confirmDeleteVoiceBackup(clip) }
+                            )
+
+                            if clip.id != voiceBackupController.clips.last?.id {
+                                Divider()
+                                    .padding(.leading, 10)
+                            }
+                        }
+                    }
+                }
+            }
+
+            SettingsSectionBlock(
+                title: "Microphone Privacy",
+                subtitle: "macOS does not let Mac Sys Settings 2 silently block every other app, but you can revoke microphone access for apps you do not trust."
+            ) {
+                SettingsGroup {
+                    SettingsActionRow(
+                        title: "Open Microphone privacy",
+                        subtitle: "Review which apps can use your mic and turn off anything that should never record.",
+                        value: "System Settings",
+                        buttonTitle: "Open"
+                    ) {
+                        SettingsDeepLinks.openMicrophone()
+                    }
+                }
+            }
+
+            SettingsSectionBlock(
+                title: "Current State",
+                subtitle: ""
+            ) {
+                StatusGrid(items: [
+                    StatusItem(title: "Voice Backup", value: voiceBackupEnabled ? (voiceBackupController.isRecording ? "Recording" : "\(voiceBackupController.clips.count)") : "Off", state: voiceBackupEnabled ? .good : .warning),
+                    StatusItem(title: "Status", value: voiceBackupController.lastStatus, state: voiceBackupEnabled ? .good : .warning)
+                ])
+            }
+        }
+        .onAppear {
+            voiceBackupEnabled = VoiceBackupStore.isEnabled
+            voiceBackupController.reloadFromFolder()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: VoiceBackupStore.didChangeNotification)) { _ in
+            voiceBackupEnabled = VoiceBackupStore.isEnabled
+        }
+    }
+
+    private func confirmDeleteVoiceBackup(_ clip: VoiceBackupClip) {
+        let alert = NSAlert()
+        alert.messageText = "Delete voice backup?"
+        alert.informativeText = "This permanently removes this temporary audio clip."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            voiceBackupController.deleteClip(clip)
+        }
+    }
+}
+
+private struct VoiceBackupClipRow: View {
+    let clip: VoiceBackupClip
+    let onTranscribe: () -> Void
+    let onCopyAudio: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                ZStack(alignment: .bottomTrailing) {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.12))
+                        .frame(width: 78, height: 54)
+
+                    Image(systemName: "waveform")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 78, height: 54)
+
+                    Button(action: onDelete) {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Color.red)
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(Color.white.opacity(0.92)))
+                    .padding(4)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Voice backup")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Text("\(formattedDate(clip.createdAt)) • \(formattedDuration(clip.duration))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Text(clip.status)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Button("Transcribe", action: onTranscribe)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+
+            if let transcript = clip.transcript, !transcript.isEmpty {
+                Text(transcript)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.primary.opacity(0.86))
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Button(action: onCopyAudio) {
+                    Text("Copy Audio File")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                if let transcript = clip.transcript, !transcript.isEmpty {
+                    Button(action: { copyTranscript(transcript) }) {
+                        Text("Copy Transcript")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    private func formattedDuration(_ duration: TimeInterval) -> String {
+        let seconds = max(0, Int(duration.rounded()))
+        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
+    }
+
+    private func copyTranscript(_ transcript: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(transcript, forType: .string)
+    }
+}
+
 private struct ModesSettingsDetailView: View {
     @State private var selectedModeName: LayoutPresetName = .coding
     @State private var modes = WindowLayoutStore.loadModes()
@@ -4275,12 +4515,14 @@ private struct WindowFrameConfigurator: NSViewRepresentable {
         let needsWidthUpdate = abs(frame.width - targetWidth) > 1
         let needsHeightUpdate = frame.height < min(targetHeight, 720)
 
-        guard needsWidthUpdate || needsHeightUpdate else { return }
+        let needsRightAlign = abs(frame.maxX - visibleFrame.maxX) > 1
+
+        guard needsWidthUpdate || needsHeightUpdate || needsRightAlign else { return }
 
         frame.size.width = targetWidth
-        frame.size.height = min(targetHeight, max(720, frame.height))
-        frame.origin.x = visibleFrame.midX - (targetWidth / 2)
-        frame.origin.y = visibleFrame.maxY - frame.height
+        frame.size.height = targetHeight
+        frame.origin.x = visibleFrame.maxX - targetWidth
+        frame.origin.y = visibleFrame.minY
 
         window.setFrame(frame, display: true, animate: false)
     }

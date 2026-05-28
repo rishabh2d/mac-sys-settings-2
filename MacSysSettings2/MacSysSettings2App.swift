@@ -29,6 +29,7 @@ struct MacSysSettings2App: App {
     @StateObject private var audioTabJumpController = AudioTabJumpController.shared
     @StateObject private var clickLightController = ClickLightController.shared
     @StateObject private var pinWindowController = PinWindowController.shared
+    @StateObject private var voiceBackupController = VoiceBackupController.shared
 
     var body: some Scene {
         WindowGroup(id: "main") {
@@ -58,6 +59,7 @@ struct MacSysSettings2App: App {
                     audioTabJumpController.start()
                     clickLightController.start()
                     pinWindowController.start()
+                    voiceBackupController.start()
                     AppAppearanceExceptionStore.pruneUnsupportedExceptions()
                     AppAppearanceExceptionStore.applyAllExceptions()
                     AppAppearanceExceptionStore.applyNotesLightBackgroundIfEnabled()

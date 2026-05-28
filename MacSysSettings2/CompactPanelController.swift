@@ -18,6 +18,7 @@ final class CompactPanelController {
     private var globalMouseMonitor: Any?
 
     func show() {
+        AppSurfaceStore.setLastSurface(.compact)
         let panel = makePanelIfNeeded()
         hideMainWindows(except: panel)
         panel.contentView = NSHostingView(rootView: CompactSettingsPanelView(onClose: { [weak self] in
@@ -143,6 +144,7 @@ private struct CompactSettingsPanelView: View {
     let onClose: () -> Void
     @State private var selectedSection: SettingsSection?
     @State private var appearance = AppAppearanceStore.current
+    @ObservedObject private var voiceBackupController = VoiceBackupController.shared
 
     private let columns = [
         GridItem(.flexible(), spacing: 10),
@@ -167,6 +169,9 @@ private struct CompactSettingsPanelView: View {
         .background(panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .preferredColorScheme(appearance.colorScheme)
+        .onAppear {
+            voiceBackupController.reloadFromFolder()
+        }
         .onReceive(NotificationCenter.default.publisher(for: AppAppearanceStore.didChangeNotification)) { _ in
             appearance = AppAppearanceStore.current
         }
@@ -390,6 +395,38 @@ private struct CompactSettingsPanelView: View {
                             _ = await WorkflowShortcutStore.run(.saveTonight)
                         }
                     }
+                case .agent:
+                    CompactToggleRow(title: "Voice Backup", subtitle: "Keep the last three temporary mic-session backups for agent dictation.", isOn: Binding(
+                        get: { VoiceBackupStore.isEnabled },
+                        set: { VoiceBackupStore.setEnabled($0) }
+                    ))
+                    CompactButtonRow(title: "Voice Backups folder", subtitle: VoiceBackupController.shared.directory.path, value: "Reveal") {
+                        VoiceBackupController.shared.revealFolder()
+                    }
+                    CompactButtonRow(title: "Microphone privacy", subtitle: "Open macOS privacy and revoke mic access for apps you do not trust.", value: "Open") {
+                        SettingsDeepLinks.openMicrophone()
+                    }
+                    if voiceBackupController.clips.isEmpty {
+                        CompactInfoBlock(
+                            title: "Recent backups",
+                            subtitle: VoiceBackupStore.isEnabled ? "Start recording in Codex, ChatGPT, Wispr Flow, or another mic app." : "Turn Voice Backup on to start keeping mic-session backups.",
+                            value: voiceBackupController.isRecording ? "Recording" : "Empty"
+                        )
+                    } else {
+                        CompactInfoBlock(
+                            title: "Recent backups",
+                            subtitle: "Last three clips stay here until replaced or deleted.",
+                            value: "\(voiceBackupController.clips.count)"
+                        )
+                        ForEach(voiceBackupController.clips) { clip in
+                            CompactVoiceBackupClipRow(
+                                clip: clip,
+                                onTranscribe: { voiceBackupController.transcribe(clip) },
+                                onCopyAudio: { voiceBackupController.copyClipFile(clip) },
+                                onDelete: { confirmDeleteVoiceBackup(clip) }
+                            )
+                        }
+                    }
                 case .presentation:
                     CompactToggleRow(title: "Cursor Highlight", subtitle: "Highlight clicks live during demos, meetings, recordings, and UX reviews.", isOn: Binding(
                         get: { ClickLightStore.isEnabled },
@@ -497,9 +534,7 @@ private struct CompactSettingsPanelView: View {
     }
 
     private var panelBackground: some View {
-        RoundedRectangle(cornerRadius: 24, style: .continuous)
-            .fill(isDark ? Color.black.opacity(0.88) : Color.white.opacity(0.985))
-            .background(isDark ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(Color.white), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        isDark ? Color.black.opacity(0.94) : Color.white.opacity(0.985)
     }
 
     private var headerBackground: some View {
@@ -513,6 +548,19 @@ private struct CompactSettingsPanelView: View {
     private var primaryText: Color { isDark ? .white : Color.black.opacity(0.86) }
     private var secondaryText: Color { isDark ? Color.white.opacity(0.62) : Color.black.opacity(0.52) }
     private var borderColor: Color { isDark ? Color.white.opacity(0.18) : Color.black.opacity(0.10) }
+
+    private func confirmDeleteVoiceBackup(_ clip: VoiceBackupClip) {
+        let alert = NSAlert()
+        alert.messageText = "Delete voice backup?"
+        alert.informativeText = "This permanently removes this temporary audio clip."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+
+        if alert.runModal() == .alertFirstButtonReturn {
+            voiceBackupController.deleteClip(clip)
+        }
+    }
 }
 
 private struct CompactSectionTile: View {
@@ -525,13 +573,8 @@ private struct CompactSectionTile: View {
             HStack {
                 Image(systemName: section.iconName)
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(
-                        LinearGradient(colors: section.iconGradient, startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
+                    .foregroundStyle(.white)
                 Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(isDark ? Color.white.opacity(0.38) : Color.black.opacity(0.34))
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -548,11 +591,11 @@ private struct CompactSectionTile: View {
         .padding(12)
         .frame(height: 96)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(isDark ? Color.white.opacity(hovering ? 0.14 : 0.08) : Color.black.opacity(hovering ? 0.08 : 0.045))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(hovering ? Color.green.opacity(0.72) : (isDark ? Color.white.opacity(0.12) : Color.black.opacity(0.07)), lineWidth: 1)
         )
         .onHover { hovering = $0 }
@@ -643,6 +686,93 @@ private struct CompactInfoBlock: View {
     }
 }
 
+private struct CompactVoiceBackupClipRow: View {
+    let clip: VoiceBackupClip
+    let onTranscribe: () -> Void
+    let onCopyAudio: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 9) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.14))
+                        .frame(width: 46, height: 38)
+                    Image(systemName: "waveform")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Voice backup")
+                        .font(.system(size: 12.5, weight: .semibold))
+                    Text("\(formattedDate(clip.createdAt)) • \(formattedDuration(clip.duration))")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                    Text(clip.status)
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 6)
+
+                Button(action: onDelete) {
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 10.5, weight: .bold))
+                }
+                .buttonStyle(CompactIconButtonStyle())
+                .foregroundStyle(Color.red)
+                .compactHoverHaptic()
+            }
+
+            if let transcript = clip.transcript, !transcript.isEmpty {
+                Text(transcript)
+                    .font(.system(size: 10.8))
+                    .foregroundStyle(.primary.opacity(0.88))
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("COPY TRANSCRIPT") {
+                    copyTranscript(transcript)
+                }
+                .buttonStyle(CompactTextButtonStyle())
+                .compactHoverHaptic()
+            }
+
+            HStack(spacing: 8) {
+                Button("TRANSCRIBE", action: onTranscribe)
+                    .buttonStyle(CompactTextButtonStyle())
+                    .compactHoverHaptic()
+                Button("COPY AUDIO", action: onCopyAudio)
+                    .buttonStyle(CompactTextButtonStyle())
+                    .compactHoverHaptic()
+            }
+        }
+        .padding(10)
+        .background(compactRowBackground)
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    private func formattedDuration(_ duration: TimeInterval) -> String {
+        guard duration.isFinite else { return "0:00" }
+        let seconds = max(0, Int(duration.rounded()))
+        return "\(seconds / 60):\(String(format: "%02d", seconds % 60))"
+    }
+
+    private func copyTranscript(_ transcript: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(transcript, forType: .string)
+    }
+}
+
 private struct CompactAppearancePicker: View {
     @Binding var appearance: AppAppearanceMode
 
@@ -697,10 +827,10 @@ private struct CompactAppearanceToggleIcon: View {
 }
 
 private var compactRowBackground: some View {
-    RoundedRectangle(cornerRadius: 13, style: .continuous)
+    RoundedRectangle(cornerRadius: 7, style: .continuous)
         .fill(Color.primary.opacity(0.055))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         )
 }
@@ -711,11 +841,11 @@ private struct CompactIconButtonStyle: ButtonStyle {
             .foregroundStyle(.primary)
             .frame(width: 28, height: 28)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(Color.primary.opacity(configuration.isPressed ? 0.18 : 0.08))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
             )
     }
@@ -729,11 +859,11 @@ private struct CompactTextButtonStyle: ButtonStyle {
             .padding(.horizontal, 9)
             .frame(height: 28)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.primary.opacity(configuration.isPressed ? 0.14 : 0.065))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(configuration.isPressed ? Color.green.opacity(0.7) : Color.primary.opacity(0.10), lineWidth: 1)
             )
     }
@@ -746,7 +876,7 @@ private struct CompactSmallTextButtonStyle: ButtonStyle {
             .padding(.horizontal, 10)
             .frame(height: 28)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(Color.primary.opacity(configuration.isPressed ? 0.16 : 0.08))
             )
     }

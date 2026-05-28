@@ -47,7 +47,12 @@ final class MenuBarController: NSObject {
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
         guard NSApp.currentEvent?.type == .rightMouseUp else {
-            CompactPanelController.shared.show()
+            switch AppSurfaceStore.lastSurface {
+            case .main:
+                AppCommandBridge.showMainWindow()
+            case .compact:
+                CompactPanelController.shared.show()
+            }
             return
         }
 
@@ -245,7 +250,7 @@ final class MenuBarController: NSObject {
         }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 980),
+            contentRect: NSRect(x: 0, y: 0, width: 510, height: 980),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -293,7 +298,7 @@ final class MenuBarController: NSObject {
 
 private struct BatteryStatsPanelView: View {
     let snapshot: BatteryUsageSnapshot
-    private let panelWidth: CGFloat = 600
+    private let panelWidth: CGFloat = 510
     private let panelHeight: CGFloat = 980
     private let backgroundColor = Color(red: 0.0, green: 0.095, blue: 0.04)
     private let creamTextColor = Color(red: 0.93, green: 0.88, blue: 0.74)
@@ -337,7 +342,7 @@ private struct BatteryStatsPanelView: View {
                 labels: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
             )
         }
-        .padding(.top, 34)
+        .padding(.top, 44)
         .padding(.horizontal, 20)
         .padding(.bottom, 26)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -403,7 +408,7 @@ private struct BatteryTodayRow: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Today")
-                    .font(.system(size: 23, weight: .bold))
+                    .font(.system(size: 27, weight: .bold))
                     .foregroundStyle(isHovering ? lightTextColor : creamTextColor)
                 Text("Battery used today.")
                     .font(.system(size: 12, weight: .semibold))
@@ -488,8 +493,8 @@ private struct BatteryUsageChartSection: View {
                 HStack(alignment: .bottom, spacing: barSpacing) {
                     ForEach(buckets.indices, id: \.self) { index in
                         VStack(spacing: 5) {
-                            Text("\(buckets[index])%")
-                                .font(.system(size: 13, weight: .bold))
+                            Text("\(buckets[index])")
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(isHovering ? lightTextColor.opacity(0.82) : creamTextColor)
                                 .fixedSize(horizontal: true, vertical: false)
                             RoundedRectangle(cornerRadius: 2, style: .continuous)

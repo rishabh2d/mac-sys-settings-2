@@ -11,8 +11,10 @@ import SwiftUI
 @MainActor
 enum AppCommandBridge {
     static var openMainWindow: (() -> Void)?
+    private static let mainWindowWidth: CGFloat = 720
 
     static func showMainWindow() {
+        AppSurfaceStore.setLastSurface(.main)
         CompactPanelController.shared.hideImmediately()
         openMainWindow?()
 
@@ -21,9 +23,48 @@ enum AppCommandBridge {
             NSApp.activate(ignoringOtherApps: true)
 
             for window in NSApp.windows where window.canBecomeMain || window.isVisible {
+                if window.title == "Mac Sys Settings 2" || window.canBecomeMain {
+                    positionMainWindow(window)
+                }
                 window.makeKeyAndOrderFront(nil)
             }
         }
+    }
+
+    private static func positionMainWindow(_ window: NSWindow) {
+        guard let screen = screenUnderMouse() ?? window.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
+        let visibleFrame = screen.visibleFrame
+        let width = min(mainWindowWidth, visibleFrame.width)
+        let frame = NSRect(
+            x: visibleFrame.maxX - width,
+            y: visibleFrame.minY,
+            width: width,
+            height: visibleFrame.height
+        )
+
+        window.minSize = NSSize(width: min(width, mainWindowWidth), height: min(visibleFrame.height, 720))
+        window.setFrame(frame, display: true, animate: false)
+    }
+
+    private static func screenUnderMouse() -> NSScreen? {
+        NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
+    }
+}
+
+enum AppSurface: String {
+    case compact
+    case main
+}
+
+enum AppSurfaceStore {
+    private static let lastSurfaceKey = "app.lastOpenedSurface"
+
+    static var lastSurface: AppSurface {
+        AppSurface(rawValue: UserDefaults.standard.string(forKey: lastSurfaceKey) ?? "") ?? .compact
+    }
+
+    static func setLastSurface(_ surface: AppSurface) {
+        UserDefaults.standard.set(surface.rawValue, forKey: lastSurfaceKey)
     }
 }
 
