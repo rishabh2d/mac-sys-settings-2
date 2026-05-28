@@ -902,7 +902,6 @@ private struct DownloadsSettingsDetailView: View {
 private struct ClipboardSettingsDetailView: View {
     @ObservedObject var controller: ScreenshotClipboardController
     @State private var copyScreenshotsEnabled = ScreenshotClipboardStore.isEnabled
-    @State private var screenshotDropPickerEnabled = ScreenshotClipboardStore.dropPickerEnabled
     @State private var autoClearEnabled = ScreenshotClipboardStore.autoClearEnabled
     @State private var autoClearMinutes = ScreenshotClipboardStore.autoClearMinutes
 
@@ -924,20 +923,6 @@ private struct ClipboardSettingsDetailView: View {
                             .labelsHidden()
                             .onChange(of: copyScreenshotsEnabled) { _, newValue in
                                 ScreenshotClipboardStore.setEnabled(newValue)
-                            }
-                    }
-
-                    Divider()
-
-                    SettingsToggleRow(
-                        title: "Show app drop picker",
-                        subtitle: "After Command-Shift-3 saves a screenshot, show a small app list so you can drag the screenshot file into Codex, Chrome, or another open app."
-                    ) {
-                        Toggle("", isOn: $screenshotDropPickerEnabled)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .onChange(of: screenshotDropPickerEnabled) { _, newValue in
-                                ScreenshotClipboardStore.setDropPickerEnabled(newValue)
                             }
                     }
 
@@ -999,7 +984,6 @@ private struct ClipboardSettingsDetailView: View {
             ) {
                 StatusGrid(items: [
                     StatusItem(title: "Copy Mode", value: copyScreenshotsEnabled ? "On" : "Off", state: copyScreenshotsEnabled ? .good : .warning),
-                    StatusItem(title: "Drop Picker", value: screenshotDropPickerEnabled ? "On" : "Off", state: screenshotDropPickerEnabled ? .good : .warning),
                     StatusItem(title: "Watcher", value: controller.isWatching ? "On" : "Off", state: controller.isWatching ? .good : .warning),
                     StatusItem(title: "Auto-clear", value: autoClearEnabled ? "\(autoClearMinutes)m" : "Off", state: autoClearEnabled ? .good : .warning),
                     StatusItem(title: "Last Screenshot", value: controller.lastCopiedFileName, state: controller.lastCopiedFileName == "None" ? .warning : .good),
@@ -1009,7 +993,6 @@ private struct ClipboardSettingsDetailView: View {
         }
         .onAppear {
             copyScreenshotsEnabled = ScreenshotClipboardStore.isEnabled
-            screenshotDropPickerEnabled = ScreenshotClipboardStore.dropPickerEnabled
             autoClearEnabled = ScreenshotClipboardStore.autoClearEnabled
             autoClearMinutes = ScreenshotClipboardStore.autoClearMinutes
         }

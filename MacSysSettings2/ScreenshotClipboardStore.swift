@@ -11,16 +11,11 @@ enum ScreenshotClipboardStore {
     static let didChangeNotification = Notification.Name("ScreenshotClipboardDidChange")
 
     private nonisolated static let enabledKey = "screenshots.clipboard.enabled"
-    private nonisolated static let dropPickerEnabledKey = "screenshots.dropPicker.enabled"
     private nonisolated static let autoClearEnabledKey = "screenshots.clipboard.autoClear.enabled"
     private nonisolated static let autoClearMinutesKey = "screenshots.clipboard.autoClear.minutes"
 
     nonisolated static var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: enabledKey)
-    }
-
-    nonisolated static var dropPickerEnabled: Bool {
-        UserDefaults.standard.object(forKey: dropPickerEnabledKey) as? Bool ?? true
     }
 
     nonisolated static var autoClearEnabled: Bool {
@@ -34,11 +29,6 @@ enum ScreenshotClipboardStore {
 
     static func setEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: enabledKey)
-        postChange()
-    }
-
-    static func setDropPickerEnabled(_ enabled: Bool) {
-        UserDefaults.standard.set(enabled, forKey: dropPickerEnabledKey)
         postChange()
     }
 
