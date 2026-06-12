@@ -14,10 +14,6 @@ final class MenuBarController: NSObject {
 
     private var statusItem: NSStatusItem?
     private var missionControlItem: NSStatusItem?
-    private var spacesPanel: NSPanel?
-    private var spacesPanelScreen: NSScreen?
-    private var spacesPanelLocalMonitor: Any?
-    private var spacesPanelGlobalMonitor: Any?
     private var batteryItem: NSStatusItem?
     private var batteryTimer: Timer?
     private var batteryPowerObserver: NSObjectProtocol?
@@ -60,7 +56,7 @@ final class MenuBarController: NSObject {
         if let button = item.button {
             button.image = NSImage(systemSymbolName: "rectangle.3.group.fill", accessibilityDescription: "Mission Control")
             button.image?.isTemplate = true
-            button.toolTip = "Mission Control. Right-click for Spaces."
+            button.toolTip = "Mission Control"
             button.target = self
             button.action = #selector(handleMissionControlItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -84,12 +80,7 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func handleMissionControlItemClick(_ sender: NSStatusBarButton) {
-        guard NSApp.currentEvent?.type == .rightMouseUp else {
-            SpaceMenuCommandController.shared.showMissionControl()
-            return
-        }
-
-        toggleSpacesPanel()
+        SpaceMenuCommandController.shared.showMissionControl()
     }
 
     @objc private func openApp() {
@@ -148,120 +139,6 @@ final class MenuBarController: NSObject {
 
     @objc private func quit() {
         NSApp.terminate(nil)
-    }
-
-    private func toggleSpacesPanel() {
-        if spacesPanel != nil {
-            closeSpacesPanel()
-        } else {
-            showSpacesPanel()
-        }
-    }
-
-    private func showSpacesPanel() {
-        closeSpacesPanel()
-
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 190, height: 70),
-            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isReleasedWhenClosed = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        let anchorScreen = missionControlItem?.button?.window?.screen ?? NSScreen.main
-        spacesPanelScreen = anchorScreen
-        panel.contentView = SpacesPanelContentView(
-            frame: NSRect(x: 0, y: 0, width: 190, height: 70),
-            onLeft: { [weak self] in SpaceMenuCommandController.shared.moveSpaceLeft(on: self?.spacesPanelScreen) },
-            onRight: { [weak self] in SpaceMenuCommandController.shared.moveSpaceRight(on: self?.spacesPanelScreen) }
-        )
-
-        if let button = missionControlItem?.button,
-           let window = button.window {
-            let buttonFrame = button.convert(button.bounds, to: nil)
-            let screenFrame = window.convertToScreen(buttonFrame)
-            let visibleFrame = anchorScreen?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
-            let origin = clampedPanelOrigin(
-                x: screenFrame.midX - panel.frame.width / 2,
-                y: screenFrame.minY - panel.frame.height - 8,
-                size: panel.frame.size,
-                visibleFrame: visibleFrame
-            )
-            panel.setFrameOrigin(origin)
-        } else if let screen = NSScreen.main {
-            let frame = screen.visibleFrame
-            panel.setFrameOrigin(clampedPanelOrigin(
-                x: frame.maxX - panel.frame.width - 20,
-                y: frame.maxY - panel.frame.height - 8,
-                size: panel.frame.size,
-                visibleFrame: frame
-            ))
-        }
-
-        spacesPanel = panel
-        installSpacesPanelClickMonitors()
-        panel.orderFrontRegardless()
-    }
-
-    private func closeSpacesPanel() {
-        spacesPanel?.orderOut(nil)
-        spacesPanel = nil
-        spacesPanelScreen = nil
-        removeSpacesPanelClickMonitors()
-    }
-
-    private func installSpacesPanelClickMonitors() {
-        removeSpacesPanelClickMonitors()
-
-        spacesPanelLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            guard let self else { return event }
-            if self.spacesPanelContains(event: event) {
-                return event
-            }
-            self.closeSpacesPanel()
-            return event
-        }
-
-        spacesPanelGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if self.spacesPanelContains(screenLocation: NSEvent.mouseLocation) {
-                    return
-                }
-                self.closeSpacesPanel()
-            }
-        }
-    }
-
-    private func removeSpacesPanelClickMonitors() {
-        if let monitor = spacesPanelLocalMonitor {
-            NSEvent.removeMonitor(monitor)
-            spacesPanelLocalMonitor = nil
-        }
-
-        if let monitor = spacesPanelGlobalMonitor {
-            NSEvent.removeMonitor(monitor)
-            spacesPanelGlobalMonitor = nil
-        }
-    }
-
-    private func spacesPanelContains(event: NSEvent) -> Bool {
-        guard let panel = spacesPanel,
-              event.window === panel else {
-            return false
-        }
-
-        return panel.contentView?.bounds.contains(event.locationInWindow) ?? false
-    }
-
-    private func spacesPanelContains(screenLocation: NSPoint) -> Bool {
-        guard let panel = spacesPanel else { return false }
-        return panel.frame.contains(screenLocation)
     }
 
     private func startBatteryItem() {
@@ -441,119 +318,6 @@ final class MenuBarController: NSObject {
         )
     }
 
-}
-
-private final class SpacesPanelContentView: NSView {
-    init(frame frameRect: NSRect, onLeft: @escaping () -> Void, onRight: @escaping () -> Void) {
-        super.init(frame: frameRect)
-
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.88).cgColor
-        layer?.cornerRadius = 8
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
-        layer?.borderWidth = 1
-
-        let left = SpacesPanelButtonControl(
-            frame: NSRect(x: 10, y: 10, width: 76, height: 50),
-            symbolName: "chevron.left",
-            title: "Left",
-            action: onLeft
-        )
-        let right = SpacesPanelButtonControl(
-            frame: NSRect(x: 104, y: 10, width: 76, height: 50),
-            symbolName: "chevron.right",
-            title: "Right",
-            action: onRight
-        )
-
-        addSubview(left)
-        addSubview(right)
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-}
-
-private final class SpacesPanelButtonControl: NSControl {
-    private let actionHandler: () -> Void
-    private let imageView = NSImageView()
-    private let titleField = NSTextField(labelWithString: "")
-    private var trackingArea: NSTrackingArea?
-    private var isHovering = false { didSet { updateBackground() } }
-    private var isPressed = false { didSet { updateBackground() } }
-
-    init(frame frameRect: NSRect, symbolName: String, title: String, action: @escaping () -> Void) {
-        self.actionHandler = action
-        super.init(frame: frameRect)
-
-        wantsLayer = true
-        layer?.cornerRadius = 6
-
-        imageView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)?
-            .withSymbolConfiguration(.init(pointSize: 22, weight: .bold))
-        imageView.contentTintColor = .white
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-
-        titleField.stringValue = title
-        titleField.textColor = .white
-        titleField.alignment = .center
-        titleField.font = .systemFont(ofSize: 12, weight: .semibold)
-
-        addSubview(imageView)
-        addSubview(titleField)
-        updateBackground()
-    }
-
-    required init?(coder: NSCoder) {
-        nil
-    }
-
-    override func layout() {
-        super.layout()
-        imageView.frame = NSRect(x: 24, y: 23, width: 28, height: 22)
-        titleField.frame = NSRect(x: 4, y: 7, width: bounds.width - 8, height: 16)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        trackingArea = area
-        addTrackingArea(area)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovering = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovering = false
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        isPressed = true
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        isPressed = false
-        let location = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(location) else { return }
-        actionHandler()
-    }
-
-    private func updateBackground() {
-        let alpha = isPressed ? 0.24 : (isHovering ? 0.18 : 0.10)
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(alpha).cgColor
-    }
 }
 
 private struct BatteryStatsPanelView: View {
