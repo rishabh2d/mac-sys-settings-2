@@ -19,7 +19,6 @@ struct MacSysSettings2App: App {
     @StateObject private var finderSortShortcutController = FinderSortShortcutController()
     @StateObject private var autoScrollController = AutoScrollController()
     @StateObject private var fullscreenEscapeController = FullscreenEscapeController()
-    @StateObject private var bluetoothAudioInputController = BluetoothAudioInputController()
     @StateObject private var bluetoothSleepController = BluetoothSleepController.shared
     @StateObject private var cursorJumpController = CursorJumpController.shared
     @StateObject private var fileShelfController = FileShelfController.shared
@@ -49,7 +48,6 @@ struct MacSysSettings2App: App {
                     finderSortShortcutController.start()
                     autoScrollController.start()
                     fullscreenEscapeController.start()
-                    bluetoothAudioInputController.start()
                     bluetoothSleepController.start()
                     cursorJumpController.start()
                     fileShelfController.start()

@@ -16,18 +16,31 @@ enum AppCommandBridge {
     static func showMainWindow() {
         AppSurfaceStore.setLastSurface(.main)
         CompactPanelController.shared.hideImmediately()
+
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        if let window = existingMainWindow() {
+            positionMainWindow(window)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
         openMainWindow?()
 
         DispatchQueue.main.async {
-            NSApp.unhide(nil)
-            NSApp.activate(ignoringOtherApps: true)
-
-            for window in NSApp.windows where window.canBecomeMain || window.isVisible {
-                if window.title == "Mac Sys Settings 2" || window.canBecomeMain {
-                    positionMainWindow(window)
-                }
+            if let window = existingMainWindow() {
+                positionMainWindow(window)
                 window.makeKeyAndOrderFront(nil)
             }
+        }
+    }
+
+    private static func existingMainWindow() -> NSWindow? {
+        NSApp.windows.first { window in
+            window.title == "Mac Sys Settings 2" && !(window is NSPanel)
+        } ?? NSApp.windows.first { window in
+            window.canBecomeMain && !(window is NSPanel)
         }
     }
 

@@ -44,8 +44,10 @@ final class VoiceBackupController: NSObject, ObservableObject, AVAudioRecorderDe
     private var observer: NSObjectProtocol?
     private var folderSource: DispatchSourceFileSystemObject?
     private var folderDescriptor: CInt = -1
+    private var sessionStartedAt: Date?
+    private var sessionInactiveStartedAt: Date?
     private var quietStartedAt: Date?
-    private var recordingStartedAt: Date?
+    private var isRequestingAudioAccess = false
     private var lastExternalMicSeenAt = Date.distantPast
 
     override private init() {
@@ -149,7 +151,7 @@ final class VoiceBackupController: NSObject, ObservableObject, AVAudioRecorderDe
         pollingTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 self?.scan()
-                try? await Task.sleep(nanoseconds: 350_000_000)
+                try? await Task.sleep(nanoseconds: 120_000_000)
             }
         }
     }
@@ -157,38 +159,51 @@ final class VoiceBackupController: NSObject, ObservableObject, AVAudioRecorderDe
     private func scan() {
         guard VoiceBackupStore.isEnabled else { return }
 
-        let externalMicActive = !isRecording && AudioInputStore.isAnyInputDeviceRunning()
-        if externalMicActive {
+        let activeMicNames = AudioInputStore.activeInputDeviceNames()
+        let externalMicActive = !activeMicNames.isEmpty
+        if externalMicActive, !isRecording {
             lastExternalMicSeenAt = Date()
+            sessionInactiveStartedAt = nil
             startRecordingIfNeeded()
         }
 
-        guard isRecording, let recorder else { return }
+        guard isRecording, let recorder else {
+            lastStatus = externalMicActive ? "Mic active" : "Watching mic"
+            return
+        }
 
+        let now = Date()
         recorder.updateMeters()
         let level = recorder.averagePower(forChannel: 0)
-        let now = Date()
 
-        if level < -48 {
+        if externalMicActive {
+            quietStartedAt = nil
+            sessionInactiveStartedAt = nil
+        } else {
+            sessionInactiveStartedAt = sessionInactiveStartedAt ?? now
+        }
+
+        if level < -52 {
             quietStartedAt = quietStartedAt ?? now
         } else {
             quietStartedAt = nil
-            lastExternalMicSeenAt = now
         }
 
-        let hasQuietTail = quietStartedAt.map { now.timeIntervalSince($0) > 3.5 } ?? false
-        let reachedMaximumLength = recordingStartedAt.map { now.timeIntervalSince($0) > 600 } ?? false
-        if hasQuietTail || reachedMaximumLength {
-            stopRecording(reason: hasQuietTail ? "Saved after silence" : "Saved max length")
+        let micTurnedOff = sessionInactiveStartedAt.map { now.timeIntervalSince($0) > 0.7 } ?? false
+        let silentTail = quietStartedAt.map { now.timeIntervalSince($0) > 5.0 } ?? false
+        let reachedMaximumLength = sessionStartedAt.map { now.timeIntervalSince($0) > 600 } ?? false
+        if micTurnedOff || silentTail || reachedMaximumLength {
+            stopRecording(reason: reachedMaximumLength ? "Saved max length" : "Saved mic session")
         }
     }
 
     private func startRecordingIfNeeded() {
-        guard !isRecording else { return }
-
+        guard !isRecording, !isRequestingAudioAccess else { return }
+        isRequestingAudioAccess = true
         AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
             Task { @MainActor in
                 guard let self else { return }
+                self.isRequestingAudioAccess = false
                 guard granted else {
                     self.lastStatus = "Microphone permission needed"
                     return
@@ -220,8 +235,9 @@ final class VoiceBackupController: NSObject, ObservableObject, AVAudioRecorderDe
 
             self.recorder = recorder
             isRecording = true
+            sessionStartedAt = Date()
+            sessionInactiveStartedAt = nil
             quietStartedAt = nil
-            recordingStartedAt = Date()
             lastStatus = "Backing up voice"
         } catch {
             lastStatus = "Recording failed"
@@ -235,8 +251,9 @@ final class VoiceBackupController: NSObject, ObservableObject, AVAudioRecorderDe
         recorder.stop()
         self.recorder = nil
         isRecording = false
+        sessionStartedAt = nil
+        sessionInactiveStartedAt = nil
         quietStartedAt = nil
-        recordingStartedAt = nil
 
         guard duration >= 0.8, FileManager.default.fileExists(atPath: url.path) else {
             try? FileManager.default.removeItem(at: url)

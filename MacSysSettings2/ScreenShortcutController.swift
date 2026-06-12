@@ -60,6 +60,7 @@ final class ScreenShortcutController: ObservableObject {
     private var controlArrowObserver: NSObjectProtocol?
     private var upSnapAliasObserver: NSObjectProtocol?
     private var browserTabSnapObserver: NSObjectProtocol?
+    private var browserMonitorMoveObserver: NSObjectProtocol?
     private var monitorMoveObserver: NSObjectProtocol?
     private var monitorMoveOthersObserver: NSObjectProtocol?
     private var desktopIconsObserver: NSObjectProtocol?
@@ -115,6 +116,7 @@ final class ScreenShortcutController: ObservableObject {
         observeControlArrowChanges()
         observeUpSnapAliasChanges()
         observeBrowserTabSnapChanges()
+        observeBrowserMonitorMoveChanges()
         observeMonitorMoveChanges()
         observeMonitorMoveOthersChanges()
         observeDesktopIconsChanges()
@@ -145,6 +147,9 @@ final class ScreenShortcutController: ObservableObject {
         }
         if let browserTabSnapObserver {
             NotificationCenter.default.removeObserver(browserTabSnapObserver)
+        }
+        if let browserMonitorMoveObserver {
+            NotificationCenter.default.removeObserver(browserMonitorMoveObserver)
         }
         if let monitorMoveObserver {
             NotificationCenter.default.removeObserver(monitorMoveObserver)
@@ -808,11 +813,27 @@ final class ScreenShortcutController: ObservableObject {
         }
     }
 
+    private func observeBrowserMonitorMoveChanges() {
+        guard browserMonitorMoveObserver == nil else { return }
+
+        browserMonitorMoveObserver = NotificationCenter.default.addObserver(
+            forName: BrowserMonitorMoveStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let controller = self else { return }
+            Task { @MainActor in
+                controller.reloadControlArrowHotKeys()
+            }
+        }
+    }
+
     private func registerControlArrowHotKeys() {
         guard ControlArrowSnapStore.isEnabled
             || MonitorMoveShortcutStore.isEnabled
             || MonitorMoveOthersShortcutStore.isEnabled
             || BrowserTabSnapStore.isEnabled
+            || (BrowserMonitorMoveStore.isEnabled && BrowserMonitorMoveStore.fastShortcutsEnabled)
             || shortcut.carbonModifiers == UInt32(controlKey | optionKey) else { return }
 
         if ControlArrowSnapStore.isEnabled, ensureEventHandlerInstalled() {
@@ -1091,6 +1112,19 @@ final class ScreenShortcutController: ObservableObject {
                 return nil
             }
 
+            if controller.isBrowserMonitorMoveFastEvent(event) {
+                Task { @MainActor in
+                    if keyCode == Int64(kVK_ANSI_T) {
+                        controller.log("Control-Option-T browser tab monitor move event tap pressed")
+                        controller.moveBrowserToNextScreen(.tab)
+                    } else if keyCode == Int64(kVK_ANSI_W) {
+                        controller.log("Control-Option-W browser window monitor move event tap pressed")
+                        controller.moveBrowserToNextScreen(.window)
+                    }
+                }
+                return nil
+            }
+
             if controller.isMonitorMoveArrowEvent(event) {
                 Task { @MainActor in
                     if controller.moveOthersIsArmed {
@@ -1202,7 +1236,7 @@ final class ScreenShortcutController: ObservableObject {
         }
 
         controlArrowLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if Self.isControlArrowEvent(event) || Self.isUpSnapAliasEvent(event) || Self.isBrowserTabSnapArrowEvent(event) || Self.isActiveMonitorMoveArrowEvent(event) || Self.isMonitorMoveArrowEvent(event) || Self.isMoveOthersArmEvent(event) {
+            if Self.isControlArrowEvent(event) || Self.isUpSnapAliasEvent(event) || Self.isBrowserTabSnapArrowEvent(event) || Self.isActiveMonitorMoveArrowEvent(event) || Self.isBrowserMonitorMoveFastEvent(event) || Self.isMonitorMoveArrowEvent(event) || Self.isMoveOthersArmEvent(event) {
                 Task { @MainActor in
                     self?.handleControlArrowEvent(event)
                 }
@@ -1253,6 +1287,17 @@ final class ScreenShortcutController: ObservableObject {
         if Self.isActiveMonitorMoveArrowEvent(event) {
             log("Control-Option active-window arrow event pressed")
             moveFrontWindowToNextScreen()
+            return
+        }
+
+        if Self.isBrowserMonitorMoveFastEvent(event) {
+            if event.keyCode == UInt16(kVK_ANSI_T) {
+                log("Control-Option-T browser tab monitor move pressed")
+                moveBrowserToNextScreen(.tab)
+            } else if event.keyCode == UInt16(kVK_ANSI_W) {
+                log("Control-Option-W browser window monitor move pressed")
+                moveBrowserToNextScreen(.window)
+            }
             return
         }
 
@@ -1351,6 +1396,21 @@ final class ScreenShortcutController: ObservableObject {
             && Self.isArrowKeyCode(event.keyCode)
     }
 
+    private static func isBrowserMonitorMoveFastEvent(_ event: NSEvent) -> Bool {
+        guard BrowserMonitorMoveStore.isEnabled,
+              BrowserMonitorMoveStore.fastShortcutsEnabled,
+              isFrontAppBrowser() else {
+            return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags.contains(.control)
+            && flags.contains(.option)
+            && !flags.contains(.command)
+            && !flags.contains(.shift)
+            && (event.keyCode == UInt16(kVK_ANSI_T) || event.keyCode == UInt16(kVK_ANSI_W))
+    }
+
     private static func isMoveOthersArmEvent(_ event: NSEvent) -> Bool {
         guard MonitorMoveOthersShortcutStore.isEnabled else { return false }
 
@@ -1435,6 +1495,33 @@ final class ScreenShortcutController: ObservableObject {
             && !flags.contains(.maskCommand)
             && !flags.contains(.maskShift)
             && Self.isArrowKeyCode(UInt16(keyCode))
+    }
+
+    private nonisolated func isBrowserMonitorMoveFastEvent(_ event: CGEvent) -> Bool {
+        guard BrowserMonitorMoveStore.isEnabled,
+              BrowserMonitorMoveStore.fastShortcutsEnabled,
+              Self.isFrontAppBrowser() else {
+            return false
+        }
+
+        let flags = event.flags
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+        return flags.contains(.maskControl)
+            && flags.contains(.maskAlternate)
+            && !flags.contains(.maskCommand)
+            && !flags.contains(.maskShift)
+            && (keyCode == Int64(kVK_ANSI_T) || keyCode == Int64(kVK_ANSI_W))
+    }
+
+    private nonisolated static func isFrontAppBrowser() -> Bool {
+        guard let bundleIdentifier = NSWorkspace.shared.frontmostApplication?.bundleIdentifier else {
+            return false
+        }
+
+        return bundleIdentifier == "com.google.Chrome"
+            || bundleIdentifier == "com.microsoft.edgemac"
+            || bundleIdentifier == "com.apple.Safari"
     }
 
     private nonisolated func isMoveOthersArmEvent(_ event: CGEvent) -> Bool {
@@ -1615,6 +1702,28 @@ final class ScreenShortcutController: ObservableObject {
         }
         lastStatus = "Moved \(app.localizedName ?? "window") to Screen \((screens.firstIndex(of: targetScreen) ?? 0) + 1)."
         log("moved \(app.localizedName ?? "window") from \(currentFrame) to \(newFrame)")
+    }
+
+    private func moveBrowserToNextScreen(_ choice: BrowserMonitorMoveChoice) {
+        guard AXIsProcessTrusted() else {
+            log("browser monitor fast move blocked by missing Accessibility permission")
+            requestAccessibilityAccess()
+            return
+        }
+
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let definition = browserTabSnapDefinitions.first(where: { $0.bundleIdentifier == app.bundleIdentifier }) else {
+            lastStatus = "No browser focused for fast monitor move."
+            log("browser monitor fast move ignored because front app is not supported browser")
+            return
+        }
+
+        switch choice {
+        case .tab:
+            moveActiveBrowserTabToNextScreen(definition)
+        case .window:
+            moveFrontWindowToNextScreen(skipBrowserChoice: true)
+        }
     }
 
     private func moveActiveBrowserTabToNextScreen(_ definition: BrowserTabSnapDefinition) {
@@ -2748,10 +2857,16 @@ final class ScreenShortcutController: ObservableObject {
         let expiresAt: Date
     }
 
+    private enum BrowserMonitorMoveChoice {
+        case tab
+        case window
+    }
+
     private struct ChromeTabMergeChoiceSet {
         let sourceWindowID: Int
         let sourceTitle: String
         let sourceDomain: String
+        let sourceFrame: CGRect
         let choices: [ChromeTabMergeWindowChoice]
     }
 
@@ -3050,6 +3165,7 @@ final class ScreenShortcutController: ObservableObject {
         chromeTabMergeChoicePresenter.show(
             sourceTitle: choiceSet.sourceTitle,
             sourceDomain: choiceSet.sourceDomain,
+            anchorScreenFrame: chromeMergeAnchorScreenFrame(for: choiceSet.sourceFrame),
             choices: choiceSet.choices,
             onSelect: { [weak self] choice in
                 self?.mergeActiveChromeTab(sourceWindowID: choiceSet.sourceWindowID, intoWindowID: choice.id)
@@ -3073,10 +3189,10 @@ final class ScreenShortcutController: ObservableObject {
                 set sourceTitle to title of active tab of sourceWindow
                 set sourceURL to URL of active tab of sourceWindow
             end try
-            set output to "SOURCE" & tabChar & (id of sourceWindow as text) & tabChar & my cleanText(sourceTitle, tabChar) & tabChar & sourceURL & linefeed
+            set sourceBounds to bounds of sourceWindow
+            set output to "SOURCE" & tabChar & (id of sourceWindow as text) & tabChar & my cleanText(sourceTitle, tabChar) & tabChar & sourceURL & tabChar & (item 1 of sourceBounds as text) & tabChar & (item 2 of sourceBounds as text) & tabChar & (item 3 of sourceBounds as text) & tabChar & (item 4 of sourceBounds as text) & linefeed
             set targetNumber to 1
             repeat with wi from 2 to (count of windows)
-                if targetNumber > 5 then exit repeat
                 set targetWindow to window wi
                 set tabTitle to ""
                 set tabURL to ""
@@ -3116,30 +3232,34 @@ final class ScreenShortcutController: ObservableObject {
         var sourceWindowID: Int?
         var sourceTitle = ""
         var sourceDomain = ""
-        var choices: [ChromeTabMergeWindowChoice] = []
+        var sourceFrame = CGRect.zero
+        var parsedChoices: [(id: Int, title: String, domain: String, frame: CGRect, isAudible: Bool)] = []
 
         for line in output.components(separatedBy: .newlines) where !line.isEmpty {
             let parts = line.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\t")
-            if parts.first == "SOURCE", parts.count >= 4 {
+            if parts.first == "SOURCE", parts.count >= 8 {
                 sourceWindowID = Int(parts[1])
                 sourceTitle = parts[2]
                 sourceDomain = domainName(from: parts[3])
+                let left = Double(parts[4]) ?? 0
+                let top = Double(parts[5]) ?? 0
+                let right = Double(parts[6]) ?? 0
+                let bottom = Double(parts[7]) ?? 0
+                sourceFrame = CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
             } else if parts.first == "TARGET", parts.count >= 10,
-                      let windowID = Int(parts[1]),
-                      let number = Int(parts[2]) {
+                      let windowID = Int(parts[1]) {
                 let left = Double(parts[6]) ?? 0
                 let top = Double(parts[7]) ?? 0
                 let right = Double(parts[8]) ?? 0
                 let bottom = Double(parts[9]) ?? 0
                 let frame = CGRect(x: left, y: top, width: max(0, right - left), height: max(0, bottom - top))
 
-                choices.append(
-                    ChromeTabMergeWindowChoice(
+                parsedChoices.append(
+                    (
                         id: windowID,
-                        number: number,
                         title: parts[3],
                         domain: domainName(from: parts[4]),
-                        position: chromeWindowPositionDescription(for: frame),
+                        frame: frame,
                         isAudible: parts[5].lowercased() == "true"
                     )
                 )
@@ -3147,12 +3267,51 @@ final class ScreenShortcutController: ObservableObject {
         }
 
         guard let sourceWindowID else { return nil }
+        let sourceScreen = chromeScreen(for: sourceFrame)
+        let sameScreenChoices = parsedChoices.filter { candidate in
+            guard let sourceScreen else { return true }
+            guard let candidateScreen = chromeScreen(for: candidate.frame) else { return false }
+            return screenFramesMatch(candidateScreen.frame, sourceScreen.frame)
+        }
+        let filteredChoices = sameScreenChoices.isEmpty ? parsedChoices : sameScreenChoices
+        let choices = filteredChoices.prefix(5).enumerated().map { index, candidate in
+            ChromeTabMergeWindowChoice(
+                id: candidate.id,
+                number: index + 1,
+                title: candidate.title,
+                domain: candidate.domain,
+                position: chromeWindowPositionDescription(for: candidate.frame),
+                isAudible: candidate.isAudible
+            )
+        }
+
         return ChromeTabMergeChoiceSet(
             sourceWindowID: sourceWindowID,
             sourceTitle: sourceTitle,
             sourceDomain: sourceDomain,
+            sourceFrame: sourceFrame,
             choices: choices
         )
+    }
+
+    private func chromeMergeAnchorScreenFrame(for sourceFrame: CGRect) -> CGRect? {
+        chromeScreen(for: sourceFrame)?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame
+    }
+
+    private func chromeScreen(for frame: CGRect) -> NSScreen? {
+        guard frame.width > 0 else {
+            return NSScreen.main ?? NSScreen.screens.first
+        }
+
+        let frameMidX = frame.midX
+        return NSScreen.screens
+            .map { screen -> (screen: NSScreen, score: CGFloat) in
+                let horizontalOverlap = max(0, min(screen.frame.maxX, frame.maxX) - max(screen.frame.minX, frame.minX))
+                let containsCenter = frameMidX >= screen.frame.minX && frameMidX <= screen.frame.maxX
+                return (screen, horizontalOverlap + (containsCenter ? screen.frame.width : 0))
+            }
+            .max { $0.score < $1.score }?
+            .screen
     }
 
     private func mergeActiveChromeTab(sourceWindowID: Int, intoWindowID targetWindowID: Int) {
