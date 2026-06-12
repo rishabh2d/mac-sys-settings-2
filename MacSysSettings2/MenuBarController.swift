@@ -15,6 +15,7 @@ final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var missionControlItem: NSStatusItem?
     private var spacesPanel: NSPanel?
+    private var spacesPanelScreen: NSScreen?
     private var spacesPanelLocalMonitor: Any?
     private var spacesPanelGlobalMonitor: Any?
     private var batteryItem: NSStatusItem?
@@ -172,16 +173,19 @@ final class MenuBarController: NSObject {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.contentView = NSHostingView(rootView: SpacesPanelView(
-            onLeft: { SpaceMenuCommandController.shared.moveSpaceLeft() },
-            onRight: { SpaceMenuCommandController.shared.moveSpaceRight() }
-        ))
+        let anchorScreen = missionControlItem?.button?.window?.screen ?? NSScreen.main
+        spacesPanelScreen = anchorScreen
+        panel.contentView = SpacesPanelContentView(
+            frame: NSRect(x: 0, y: 0, width: 190, height: 70),
+            onLeft: { [weak self] in SpaceMenuCommandController.shared.moveSpaceLeft(on: self?.spacesPanelScreen) },
+            onRight: { [weak self] in SpaceMenuCommandController.shared.moveSpaceRight(on: self?.spacesPanelScreen) }
+        )
 
         if let button = missionControlItem?.button,
            let window = button.window {
             let buttonFrame = button.convert(button.bounds, to: nil)
             let screenFrame = window.convertToScreen(buttonFrame)
-            let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+            let visibleFrame = anchorScreen?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
             let origin = clampedPanelOrigin(
                 x: screenFrame.midX - panel.frame.width / 2,
                 y: screenFrame.minY - panel.frame.height - 8,
@@ -207,6 +211,7 @@ final class MenuBarController: NSObject {
     private func closeSpacesPanel() {
         spacesPanel?.orderOut(nil)
         spacesPanel = nil
+        spacesPanelScreen = nil
         removeSpacesPanelClickMonitors()
     }
 
@@ -224,7 +229,11 @@ final class MenuBarController: NSObject {
 
         spacesPanelGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             Task { @MainActor in
-                self?.closeSpacesPanel()
+                guard let self else { return }
+                if self.spacesPanelContains(screenLocation: NSEvent.mouseLocation) {
+                    return
+                }
+                self.closeSpacesPanel()
             }
         }
     }
@@ -248,6 +257,11 @@ final class MenuBarController: NSObject {
         }
 
         return panel.contentView?.bounds.contains(event.locationInWindow) ?? false
+    }
+
+    private func spacesPanelContains(screenLocation: NSPoint) -> Bool {
+        guard let panel = spacesPanel else { return false }
+        return panel.frame.contains(screenLocation)
     }
 
     private func startBatteryItem() {
@@ -429,60 +443,116 @@ final class MenuBarController: NSObject {
 
 }
 
-private struct SpacesPanelView: View {
-    let onLeft: () -> Void
-    let onRight: () -> Void
+private final class SpacesPanelContentView: NSView {
+    init(frame frameRect: NSRect, onLeft: @escaping () -> Void, onRight: @escaping () -> Void) {
+        super.init(frame: frameRect)
 
-    private let backgroundColor = Color.black.opacity(0.88)
-    private let borderColor = Color.white.opacity(0.22)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.88).cgColor
+        layer?.cornerRadius = 8
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
+        layer?.borderWidth = 1
 
-    var body: some View {
-        HStack(spacing: 10) {
-            SpacesPanelButton(systemName: "chevron.left", title: "Left", action: onLeft)
-            SpacesPanelButton(systemName: "chevron.right", title: "Right", action: onRight)
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(backgroundColor)
+        let left = SpacesPanelButtonControl(
+            frame: NSRect(x: 10, y: 10, width: 76, height: 50),
+            symbolName: "chevron.left",
+            title: "Left",
+            action: onLeft
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(borderColor, lineWidth: 1)
+        let right = SpacesPanelButtonControl(
+            frame: NSRect(x: 104, y: 10, width: 76, height: 50),
+            symbolName: "chevron.right",
+            title: "Right",
+            action: onRight
         )
+
+        addSubview(left)
+        addSubview(right)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
     }
 }
 
-private struct SpacesPanelButton: View {
-    let systemName: String
-    let title: String
-    let action: () -> Void
+private final class SpacesPanelButtonControl: NSControl {
+    private let actionHandler: () -> Void
+    private let imageView = NSImageView()
+    private let titleField = NSTextField(labelWithString: "")
+    private var trackingArea: NSTrackingArea?
+    private var isHovering = false { didSet { updateBackground() } }
+    private var isPressed = false { didSet { updateBackground() } }
 
-    @State private var isHovering = false
+    init(frame frameRect: NSRect, symbolName: String, title: String, action: @escaping () -> Void) {
+        self.actionHandler = action
+        super.init(frame: frameRect)
 
-    private let buttonColor = Color.white.opacity(0.10)
-    private let hoverColor = Color.white.opacity(0.18)
+        wantsLayer = true
+        layer?.cornerRadius = 6
 
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 3) {
-                Image(systemName: systemName)
-                    .font(.system(size: 20, weight: .bold))
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .foregroundStyle(.white)
-            .frame(width: 76, height: 50)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isHovering ? hoverColor : buttonColor)
-            )
-            .contentShape(Rectangle())
+        imageView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)?
+            .withSymbolConfiguration(.init(pointSize: 22, weight: .bold))
+        imageView.contentTintColor = .white
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+
+        titleField.stringValue = title
+        titleField.textColor = .white
+        titleField.alignment = .center
+        titleField.font = .systemFont(ofSize: 12, weight: .semibold)
+
+        addSubview(imageView)
+        addSubview(titleField)
+        updateBackground()
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        imageView.frame = NSRect(x: 24, y: 23, width: 28, height: 22)
+        titleField.frame = NSRect(x: 4, y: 7, width: bounds.width - 8, height: 16)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
         }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovering = hovering
-        }
+
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isPressed = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        isPressed = false
+        let location = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(location) else { return }
+        actionHandler()
+    }
+
+    private func updateBackground() {
+        let alpha = isPressed ? 0.24 : (isHovering ? 0.18 : 0.10)
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(alpha).cgColor
     }
 }
 

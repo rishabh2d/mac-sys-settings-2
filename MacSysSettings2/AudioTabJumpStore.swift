@@ -16,8 +16,8 @@ enum AudioTabJumpStore {
 
     static let defaultShortcut = ScreenShortcut(
         keyCode: UInt32(kVK_ANSI_P),
-        carbonModifiers: UInt32(controlKey | optionKey | cmdKey),
-        parts: ["Control", "Option", "Command", "P"]
+        carbonModifiers: UInt32(controlKey | optionKey),
+        parts: ["Control", "Option", "P"]
     )
 
     nonisolated static var isEnabled: Bool {
@@ -25,10 +25,15 @@ enum AudioTabJumpStore {
     }
 
     nonisolated static var shortcut: ScreenShortcut {
-        ScreenShortcut.from(
+        let saved = ScreenShortcut.from(
             dictionary: UserDefaults.standard.dictionary(forKey: shortcutKey),
             fallback: defaultShortcut
         )
+        if saved.keyCode == UInt32(kVK_ANSI_P),
+           saved.carbonModifiers == UInt32(controlKey | optionKey | cmdKey) {
+            return defaultShortcut
+        }
+        return saved
     }
 
     static func setEnabled(_ enabled: Bool) {
