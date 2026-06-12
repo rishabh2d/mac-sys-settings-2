@@ -2670,7 +2670,7 @@ private struct ScreenSettingsDetailView: View {
                 SettingsGroup {
                     SettingsToggleRow(
                         title: "\(PinWindowStore.shortcut.displayText) pins FaceTime",
-                        subtitle: "Press Control-Option-P to keep the focused window above normal windows. Press it again to unpin."
+                        subtitle: "Press \(PinWindowStore.shortcut.displayText) to keep the focused window above normal windows. Press it again to unpin."
                     ) {
                         Toggle("", isOn: $pinWindowEnabled)
                             .toggleStyle(.switch)
@@ -2919,7 +2919,7 @@ private struct ScreenSettingsDetailView: View {
 
                     ShortcutRecorderRow(
                         title: "Shortcut",
-                        idleSubtitle: "Default is Control-Option-Command-P.",
+                        idleSubtitle: "Default is Control-Option-P.",
                         recordingSubtitle: "Press any shortcut up to four keys.",
                         conflictScope: "Audio tab jump",
                         shortcut: $audioTabJumpShortcut

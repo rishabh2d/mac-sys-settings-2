@@ -15,8 +15,8 @@ enum PinWindowStore {
 
     static let shortcut = ScreenShortcut(
         keyCode: UInt32(kVK_ANSI_P),
-        carbonModifiers: UInt32(controlKey | optionKey),
-        parts: ["Control", "Option", "P"]
+        carbonModifiers: UInt32(controlKey | optionKey | cmdKey),
+        parts: ["Control", "Option", "Command", "P"]
     )
 
     nonisolated static var isEnabled: Bool {

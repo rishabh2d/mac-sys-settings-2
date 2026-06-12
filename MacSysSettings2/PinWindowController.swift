@@ -205,7 +205,7 @@ final class PinWindowController: ObservableObject {
         let flags = event.flags
         return flags.contains(.maskControl)
             && flags.contains(.maskAlternate)
-            && !flags.contains(.maskCommand)
+            && flags.contains(.maskCommand)
             && !flags.contains(.maskShift)
     }
 
