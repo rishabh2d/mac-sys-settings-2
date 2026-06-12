@@ -396,7 +396,7 @@ private struct CompactSettingsPanelView: View {
                         }
                     }
                 case .agent:
-                    CompactToggleRow(title: "Voice Backup", subtitle: "Keep the last three temporary mic-session backups for agent dictation.", isOn: Binding(
+                    CompactToggleRow(title: "Voice Backup", subtitle: "Save only real macOS mic sessions.", isOn: Binding(
                         get: { VoiceBackupStore.isEnabled },
                         set: { VoiceBackupStore.setEnabled($0) }
                     ))
@@ -492,10 +492,6 @@ private struct CompactSettingsPanelView: View {
                         set: { WindowSwitcherSettingsStore.setEnabled($0) }
                     ))
                 case .mic:
-                    CompactToggleRow(title: "Bluetooth mic prompt", subtitle: "Show sound input choices when audio devices connect.", isOn: Binding(
-                        get: { BluetoothAudioInputPromptStore.isEnabled },
-                        set: { BluetoothAudioInputPromptStore.setEnabled($0) }
-                    ))
                     CompactToggleRow(title: "Bluetooth off during sleep", subtitle: "Stops sleeping Macs from stealing headphones. May affect Apple Watch unlock and Bluetooth wake.", isOn: Binding(
                         get: { BluetoothSleepStore.isEnabled },
                         set: { BluetoothSleepStore.setEnabled($0) }

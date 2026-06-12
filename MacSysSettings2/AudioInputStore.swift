@@ -5,6 +5,7 @@
 //  Created by Codex on 05/18/26.
 //
 
+import AVFoundation
 import CoreAudio
 import Foundation
 
@@ -102,6 +103,10 @@ enum AudioInputStore {
 
     static func isAnyInputDeviceRunning() -> Bool {
         !activeInputDeviceNames().isEmpty
+    }
+
+    static func isInputInUseByAnotherApplication() -> Bool {
+        AVCaptureDevice.default(for: .audio)?.isInUseByAnotherApplication == true
     }
 
     private static func hasInputStreams(deviceID: AudioObjectID) -> Bool {

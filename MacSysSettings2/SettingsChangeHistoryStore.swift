@@ -161,7 +161,6 @@ enum SettingsChangeHistoryStore {
             app("screen.fullscreenEscape", "Fullscreen Escape") { FullscreenEscapeStore.isEnabled.onOff },
             app("windowSwitcher.enabled", "Option-Tab window switcher") { WindowSwitcherSettingsStore.enabled.onOff },
             app("windowSwitcher.hotCorner", "Window switcher hot corner") { WindowSwitcherSettingsStore.bottomRightHotCorner.onOff },
-            app("mic.bluetoothPrompt", "Bluetooth mic prompt") { BluetoothAudioInputPromptStore.isEnabled.onOff },
             app("mic.bluetoothSleep", "Bluetooth off during sleep") { BluetoothSleepStore.isEnabled.onOff },
             app("mic.bluetoothSleepBatteryOnly", "Bluetooth sleep only on battery") { BluetoothSleepStore.onlyOnBattery.onOff },
             app("mic.networkWarning", "Mic Wi-Fi warning") { MicNetworkWarningStore.isEnabled.onOff },

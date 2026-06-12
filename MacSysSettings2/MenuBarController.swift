@@ -13,6 +13,10 @@ final class MenuBarController: NSObject {
     static let shared = MenuBarController()
 
     private var statusItem: NSStatusItem?
+    private var missionControlItem: NSStatusItem?
+    private var spacesPanel: NSPanel?
+    private var spacesPanelLocalMonitor: Any?
+    private var spacesPanelGlobalMonitor: Any?
     private var batteryItem: NSStatusItem?
     private var batteryTimer: Timer?
     private var batteryPowerObserver: NSObjectProtocol?
@@ -41,8 +45,27 @@ final class MenuBarController: NSObject {
         }
 
         statusItem = item
+        startMissionControlItem()
         startBatteryItem()
         ClickLightController.shared.start()
+    }
+
+    private func startMissionControlItem() {
+        guard missionControlItem == nil else { return }
+
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.isVisible = true
+
+        if let button = item.button {
+            button.image = NSImage(systemSymbolName: "rectangle.3.group.fill", accessibilityDescription: "Mission Control")
+            button.image?.isTemplate = true
+            button.toolTip = "Mission Control. Right-click for Spaces."
+            button.target = self
+            button.action = #selector(handleMissionControlItemClick(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+
+        missionControlItem = item
     }
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
@@ -57,6 +80,15 @@ final class MenuBarController: NSObject {
         }
 
         showLayoutPresetChooser()
+    }
+
+    @objc private func handleMissionControlItemClick(_ sender: NSStatusBarButton) {
+        guard NSApp.currentEvent?.type == .rightMouseUp else {
+            SpaceMenuCommandController.shared.showMissionControl()
+            return
+        }
+
+        toggleSpacesPanel()
     }
 
     @objc private func openApp() {
@@ -115,6 +147,107 @@ final class MenuBarController: NSObject {
 
     @objc private func quit() {
         NSApp.terminate(nil)
+    }
+
+    private func toggleSpacesPanel() {
+        if spacesPanel != nil {
+            closeSpacesPanel()
+        } else {
+            showSpacesPanel()
+        }
+    }
+
+    private func showSpacesPanel() {
+        closeSpacesPanel()
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 190, height: 70),
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isReleasedWhenClosed = false
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.contentView = NSHostingView(rootView: SpacesPanelView(
+            onLeft: { SpaceMenuCommandController.shared.moveSpaceLeft() },
+            onRight: { SpaceMenuCommandController.shared.moveSpaceRight() }
+        ))
+
+        if let button = missionControlItem?.button,
+           let window = button.window {
+            let buttonFrame = button.convert(button.bounds, to: nil)
+            let screenFrame = window.convertToScreen(buttonFrame)
+            let visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+            let origin = clampedPanelOrigin(
+                x: screenFrame.midX - panel.frame.width / 2,
+                y: screenFrame.minY - panel.frame.height - 8,
+                size: panel.frame.size,
+                visibleFrame: visibleFrame
+            )
+            panel.setFrameOrigin(origin)
+        } else if let screen = NSScreen.main {
+            let frame = screen.visibleFrame
+            panel.setFrameOrigin(clampedPanelOrigin(
+                x: frame.maxX - panel.frame.width - 20,
+                y: frame.maxY - panel.frame.height - 8,
+                size: panel.frame.size,
+                visibleFrame: frame
+            ))
+        }
+
+        spacesPanel = panel
+        installSpacesPanelClickMonitors()
+        panel.orderFrontRegardless()
+    }
+
+    private func closeSpacesPanel() {
+        spacesPanel?.orderOut(nil)
+        spacesPanel = nil
+        removeSpacesPanelClickMonitors()
+    }
+
+    private func installSpacesPanelClickMonitors() {
+        removeSpacesPanelClickMonitors()
+
+        spacesPanelLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            if self.spacesPanelContains(event: event) {
+                return event
+            }
+            self.closeSpacesPanel()
+            return event
+        }
+
+        spacesPanelGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                self?.closeSpacesPanel()
+            }
+        }
+    }
+
+    private func removeSpacesPanelClickMonitors() {
+        if let monitor = spacesPanelLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            spacesPanelLocalMonitor = nil
+        }
+
+        if let monitor = spacesPanelGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            spacesPanelGlobalMonitor = nil
+        }
+    }
+
+    private func spacesPanelContains(event: NSEvent) -> Bool {
+        guard let panel = spacesPanel,
+              event.window === panel else {
+            return false
+        }
+
+        return panel.contentView?.bounds.contains(event.locationInWindow) ?? false
     }
 
     private func startBatteryItem() {
@@ -296,6 +429,63 @@ final class MenuBarController: NSObject {
 
 }
 
+private struct SpacesPanelView: View {
+    let onLeft: () -> Void
+    let onRight: () -> Void
+
+    private let backgroundColor = Color.black.opacity(0.88)
+    private let borderColor = Color.white.opacity(0.22)
+
+    var body: some View {
+        HStack(spacing: 10) {
+            SpacesPanelButton(systemName: "chevron.left", title: "Left", action: onLeft)
+            SpacesPanelButton(systemName: "chevron.right", title: "Right", action: onRight)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(backgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(borderColor, lineWidth: 1)
+        )
+    }
+}
+
+private struct SpacesPanelButton: View {
+    let systemName: String
+    let title: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    private let buttonColor = Color.white.opacity(0.10)
+    private let hoverColor = Color.white.opacity(0.18)
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: systemName)
+                    .font(.system(size: 20, weight: .bold))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .frame(width: 76, height: 50)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? hoverColor : buttonColor)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isHovering = hovering
+        }
+    }
+}
+
 private struct BatteryStatsPanelView: View {
     let snapshot: BatteryUsageSnapshot
     private let panelWidth: CGFloat = 510
@@ -305,47 +495,50 @@ private struct BatteryStatsPanelView: View {
     private let secondaryTextColor = Color(red: 0.93, green: 0.88, blue: 0.74).opacity(0.78)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Battery Used")
-                    .font(.system(size: 36, weight: .bold))
-                    .foregroundStyle(creamTextColor)
-                Text("Left menu bar number is battery remaining.\nRight menu bar number is battery used this week.")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(secondaryTextColor)
-                    .fixedSize(horizontal: false, vertical: true)
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Battery Used")
+                        .font(.system(size: 36, weight: .bold))
+                        .foregroundStyle(creamTextColor)
+                    Text("Left menu bar number is battery remaining.\nRight menu bar number is battery used this week.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(secondaryTextColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                BatteryTodayRow(value: snapshot.usedTodayPercent)
+
+                BatteryUsageChartSection(
+                    title: "This week",
+                    description: highestWeekDescription(snapshot.weekBuckets),
+                    value: snapshot.usedWeekPercent,
+                    buckets: snapshot.weekBuckets,
+                    labels: ["M", "T", "W", "T", "F", "S", "S"]
+                )
+
+                BatteryUsageChartSection(
+                    title: "This month",
+                    description: highestMonthDescription(snapshot.monthBuckets),
+                    value: snapshot.usedMonthPercent,
+                    buckets: monthBucketsByThree(snapshot.monthBuckets),
+                    labels: monthLabels()
+                )
+
+                BatteryUsageChartSection(
+                    title: "This year",
+                    description: highestYearDescription(yearBuckets: snapshot.yearBuckets, monthBuckets: snapshot.monthBuckets),
+                    value: snapshot.usedYearPercent,
+                    buckets: snapshot.yearBuckets,
+                    labels: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
+                )
             }
-
-            BatteryTodayRow(value: snapshot.usedTodayPercent)
-
-            BatteryUsageChartSection(
-                title: "This week",
-                description: highestWeekDescription(snapshot.weekBuckets),
-                value: snapshot.usedWeekPercent,
-                buckets: snapshot.weekBuckets,
-                labels: ["M", "T", "W", "T", "F", "S", "S"]
-            )
-
-            BatteryUsageChartSection(
-                title: "This month",
-                description: highestMonthDescription(snapshot.monthBuckets),
-                value: snapshot.usedMonthPercent,
-                buckets: monthBucketsByThree(snapshot.monthBuckets),
-                labels: monthLabels()
-            )
-
-            BatteryUsageChartSection(
-                title: "This year",
-                description: highestYearDescription(yearBuckets: snapshot.yearBuckets, monthBuckets: snapshot.monthBuckets),
-                value: snapshot.usedYearPercent,
-                buckets: snapshot.yearBuckets,
-                labels: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
-            )
+            .padding(.top, 22)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 34)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(.top, 44)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 26)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .defaultScrollAnchor(.top)
         .frame(width: panelWidth, height: panelHeight)
         .background(backgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -417,7 +610,7 @@ private struct BatteryTodayRow: View {
             .padding(.leading, 3)
             Spacer()
             HStack(alignment: .firstTextBaseline, spacing: 1) {
-                Text(String(value))
+                Text(verbatim: String(value))
                     .font(.system(size: 35, weight: .bold))
                     .monospacedDigit()
                 Text("%")
@@ -479,7 +672,7 @@ private struct BatteryUsageChartSection: View {
                 .padding(.leading, 3)
                 Spacer()
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
-                    Text(String(value))
+                    Text(verbatim: String(value))
                         .font(.system(size: 34, weight: .bold))
                         .monospacedDigit()
                     Text("%")
@@ -493,7 +686,7 @@ private struct BatteryUsageChartSection: View {
                 HStack(alignment: .bottom, spacing: barSpacing) {
                     ForEach(buckets.indices, id: \.self) { index in
                         VStack(spacing: 5) {
-                            Text("\(buckets[index])")
+                            Text(verbatim: String(buckets[index]))
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(isHovering ? lightTextColor.opacity(0.82) : creamTextColor)
                                 .fixedSize(horizontal: true, vertical: false)

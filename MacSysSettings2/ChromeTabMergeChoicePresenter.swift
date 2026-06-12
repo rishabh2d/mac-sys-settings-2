@@ -22,10 +22,13 @@ struct ChromeTabMergeWindowChoice: Identifiable, Equatable {
 final class ChromeTabMergeChoicePresenter {
     private let panelWidth: CGFloat = 560
     private var panel: ChromeTabMergeChoicePanel?
+    private var localKeyMonitor: Any?
+    private var globalKeyMonitor: Any?
 
     func show(
         sourceTitle: String,
         sourceDomain: String,
+        anchorScreenFrame: CGRect?,
         choices: [ChromeTabMergeWindowChoice],
         onSelect: @escaping (ChromeTabMergeWindowChoice) -> Void,
         onCancel: @escaping () -> Void
@@ -56,32 +59,11 @@ final class ChromeTabMergeChoicePresenter {
         )
 
         panel.onKeyDown = { [weak self] event in
-            guard let characters = event.charactersIgnoringModifiers else {
-                if event.keyCode == UInt16(kVK_Escape) {
-                    self?.hide()
-                    onCancel()
-                    return true
-                }
-                return false
-            }
-
-            if event.keyCode == UInt16(kVK_Escape) {
-                self?.hide()
-                onCancel()
-                return true
-            }
-
-            if let number = Int(characters),
-               let choice = visibleChoices.first(where: { $0.number == number }) {
-                self?.hide()
-                onSelect(choice)
-                return true
-            }
-
-            return false
+            self?.handleKey(event, choices: visibleChoices, onSelect: onSelect, onCancel: onCancel) ?? false
         }
+        installKeyMonitors(choices: visibleChoices, onSelect: onSelect, onCancel: onCancel)
 
-        center(panel: panel, size: panelSize)
+        center(panel: panel, size: panelSize, anchorScreenFrame: anchorScreenFrame)
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         panel.makeKey()
@@ -94,6 +76,7 @@ final class ChromeTabMergeChoicePresenter {
 
     func hide() {
         guard let panel else { return }
+        removeKeyMonitors()
 
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.1
@@ -101,6 +84,62 @@ final class ChromeTabMergeChoicePresenter {
         }, completionHandler: {
             panel.orderOut(nil)
         })
+    }
+
+    private func installKeyMonitors(
+        choices: [ChromeTabMergeWindowChoice],
+        onSelect: @escaping (ChromeTabMergeWindowChoice) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        removeKeyMonitors()
+
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if self?.handleKey(event, choices: choices, onSelect: onSelect, onCancel: onCancel) == true {
+                return nil
+            }
+            return event
+        }
+
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            Task { @MainActor in
+                _ = self?.handleKey(event, choices: choices, onSelect: onSelect, onCancel: onCancel)
+            }
+        }
+    }
+
+    private func removeKeyMonitors() {
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+            self.localKeyMonitor = nil
+        }
+
+        if let globalKeyMonitor {
+            NSEvent.removeMonitor(globalKeyMonitor)
+            self.globalKeyMonitor = nil
+        }
+    }
+
+    private func handleKey(
+        _ event: NSEvent,
+        choices: [ChromeTabMergeWindowChoice],
+        onSelect: @escaping (ChromeTabMergeWindowChoice) -> Void,
+        onCancel: @escaping () -> Void
+    ) -> Bool {
+        if event.keyCode == UInt16(kVK_Escape) {
+            hide()
+            onCancel()
+            return true
+        }
+
+        guard let characters = event.charactersIgnoringModifiers,
+              let number = Int(characters),
+              let choice = choices.first(where: { $0.number == number }) else {
+            return false
+        }
+
+        hide()
+        onSelect(choice)
+        return true
     }
 
     private func makePanelIfNeeded() -> ChromeTabMergeChoicePanel {
@@ -132,17 +171,18 @@ final class ChromeTabMergeChoicePresenter {
         return NSSize(width: panelWidth, height: height)
     }
 
-    private func center(panel: NSPanel, size: NSSize) {
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
+    private func center(panel: NSPanel, size: NSSize, anchorScreenFrame: CGRect?) {
+        let frame = anchorScreenFrame
+            ?? NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? NSScreen.screens.first?.visibleFrame
 
-        guard let screen else { return }
+        guard let frame else { return }
 
         panel.setFrame(
             NSRect(
-                x: screen.frame.midX - size.width / 2,
-                y: screen.frame.midY - size.height / 2,
+                x: frame.midX - size.width / 2,
+                y: frame.midY - size.height / 2,
                 width: size.width,
                 height: size.height
             ),

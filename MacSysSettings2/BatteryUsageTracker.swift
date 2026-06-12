@@ -26,13 +26,14 @@ enum BatteryUsageTracker {
     }
 
     private nonisolated static let schemaVersionKey = "battery.usage.schemaVersion"
-    private nonisolated static let currentSchemaVersion = 4
+    private nonisolated static let currentSchemaVersion = 7
 
     private nonisolated static let lastPercentKey = "battery.usage.lastPercent"
     private nonisolated static let usedTodayKey = "battery.usage.used.today"
     private nonisolated static let usedWeekKey = "battery.usage.used.week"
     private nonisolated static let usedMonthKey = "battery.usage.used.month"
     private nonisolated static let usedYearKey = "battery.usage.used.year"
+    private nonisolated static let dailyLedgerKey = "battery.usage.dailyLedger"
     private nonisolated static let weekBucketsKey = "battery.usage.buckets.week"
     private nonisolated static let monthBucketsKey = "battery.usage.buckets.month"
     private nonisolated static let yearBucketsKey = "battery.usage.buckets.year"
@@ -46,7 +47,7 @@ enum BatteryUsageTracker {
         guard let reading = readBattery() else { return nil }
 
         migrateLegacyKeysIfNeeded()
-        resetPeriodsIfNeeded(now: Date())
+        pruneDailyLedger()
 
         let lastPercent = UserDefaults.standard.object(forKey: lastPercentKey) as? Int ?? reading.percent
         if reading.percent < lastPercent {
@@ -55,32 +56,52 @@ enum BatteryUsageTracker {
 
         UserDefaults.standard.set(reading.percent, forKey: lastPercentKey)
 
+        let weekBuckets = weekBucketsFromLedger()
+        let monthBuckets = monthBucketsFromLedger()
+        let yearBuckets = yearBucketsFromLedger()
+        let usedToday = ledgerValue(for: dateID())
+        let usedWeek = weekBuckets.reduce(0, +)
+        let usedMonth = monthBuckets.reduce(0, +)
+        let usedYear = yearBuckets.reduce(0, +)
+        UserDefaults.standard.set(usedToday, forKey: usedTodayKey)
+        UserDefaults.standard.set(usedWeek, forKey: usedWeekKey)
+        UserDefaults.standard.set(usedMonth, forKey: usedMonthKey)
+        UserDefaults.standard.set(usedYear, forKey: usedYearKey)
+        UserDefaults.standard.set(weekBuckets, forKey: weekBucketsKey)
+        UserDefaults.standard.set(monthBuckets, forKey: monthBucketsKey)
+        UserDefaults.standard.set(yearBuckets, forKey: yearBucketsKey)
+
         return BatteryUsageSnapshot(
             remainingPercent: reading.percent,
-            usedTodayPercent: UserDefaults.standard.integer(forKey: usedTodayKey),
-            usedWeekPercent: UserDefaults.standard.integer(forKey: usedWeekKey),
-            usedMonthPercent: UserDefaults.standard.integer(forKey: usedMonthKey),
-            usedYearPercent: UserDefaults.standard.integer(forKey: usedYearKey),
-            weekBuckets: buckets(forKey: weekBucketsKey, count: 7, fallbackTotalKey: usedWeekKey, fallbackIndex: weekBucketIndex()),
-            monthBuckets: buckets(forKey: monthBucketsKey, count: daysInCurrentMonth(), fallbackTotalKey: usedMonthKey, fallbackIndex: monthBucketIndex()),
-            yearBuckets: buckets(forKey: yearBucketsKey, count: 12, fallbackTotalKey: usedYearKey, fallbackIndex: yearBucketIndex()),
+            usedTodayPercent: usedToday,
+            usedWeekPercent: usedWeek,
+            usedMonthPercent: usedMonth,
+            usedYearPercent: usedYear,
+            weekBuckets: weekBuckets,
+            monthBuckets: monthBuckets,
+            yearBuckets: yearBuckets,
             isCharging: reading.isCharging
         )
     }
 
     private static func addDrain(_ drop: Int) {
         guard drop > 0, drop < 80 else { return }
-        for key in [usedTodayKey, usedWeekKey, usedMonthKey, usedYearKey] {
-            UserDefaults.standard.set(UserDefaults.standard.integer(forKey: key) + drop, forKey: key)
-        }
-        addDrain(drop, bucketKey: weekBucketsKey, count: 7, index: weekBucketIndex())
-        addDrain(drop, bucketKey: monthBucketsKey, count: daysInCurrentMonth(), index: monthBucketIndex())
-        addDrain(drop, bucketKey: yearBucketsKey, count: 12, index: yearBucketIndex())
+        var ledger = dailyLedger()
+        let today = dateID()
+        ledger[today, default: 0] += drop
+        saveDailyLedger(ledger)
     }
 
     private static func migrateLegacyKeysIfNeeded() {
-        guard UserDefaults.standard.integer(forKey: schemaVersionKey) != currentSchemaVersion else { return }
+        let existingSchemaVersion = UserDefaults.standard.integer(forKey: schemaVersionKey)
+        guard existingSchemaVersion != currentSchemaVersion else { return }
 
+        let existingToday = UserDefaults.standard.integer(forKey: usedTodayKey)
+        let existingWeek = UserDefaults.standard.integer(forKey: usedWeekKey)
+        let existingMonth = UserDefaults.standard.integer(forKey: usedMonthKey)
+        let existingYear = UserDefaults.standard.integer(forKey: usedYearKey)
+        let existingWeekBuckets = UserDefaults.standard.array(forKey: weekBucketsKey) as? [Int] ?? []
+        let existingMonthBuckets = UserDefaults.standard.array(forKey: monthBucketsKey) as? [Int] ?? []
         for key in [
             "battery.usage.day.baseline",
             "battery.usage.week.baseline",
@@ -90,74 +111,135 @@ enum BatteryUsageTracker {
             "battery.usage.lastTimestamp",
             "battery.usage.lastTelemetryKey",
             "battery.usage.sessionStartPercent",
-            "battery.usage.sessionStartTelemetryPercent"
+            "battery.usage.sessionStartTelemetryPercent",
+            weekBucketsKey,
+            monthBucketsKey,
+            yearBucketsKey
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
 
-        clampUsageTotal(usedTodayKey)
-        clampUsageTotal(usedWeekKey)
-        clampUsageTotal(usedMonthKey)
-        clampUsageTotal(usedYearKey)
+        if dailyLedger().isEmpty {
+            seedDailyLedger(
+                todayTotal: existingToday,
+                periodTotal: max(existingToday, existingWeek, existingMonth, existingYear),
+                weekBuckets: existingWeekBuckets,
+                monthBuckets: existingMonthBuckets
+            )
+        } else if existingSchemaVersion < 7 {
+            repairLegacyYearSeededLedger()
+        }
         UserDefaults.standard.set(currentSchemaVersion, forKey: schemaVersionKey)
     }
 
-    private static func clampUsageTotal(_ key: String) {
-        let value = UserDefaults.standard.integer(forKey: key)
-        guard value < 0 || value > 1_000 else { return }
-        UserDefaults.standard.set(max(0, min(value, 1_000)), forKey: key)
-    }
+    private static func seedDailyLedger(todayTotal: Int, periodTotal: Int, weekBuckets: [Int], monthBuckets: [Int]) {
+        var ledger: [String: Int] = [:]
+        let now = Date()
+        let calendar = Calendar.current
 
-    private static func resetPeriodsIfNeeded(now: Date) {
-        resetPeriod(idKey: dayIDKey, valueKey: usedTodayKey, periodID: periodID(now, component: .day))
-        resetPeriod(idKey: weekIDKey, valueKey: usedWeekKey, bucketKey: weekBucketsKey, periodID: periodID(now, component: .weekOfYear), bucketCount: 7)
-        resetPeriod(idKey: monthIDKey, valueKey: usedMonthKey, bucketKey: monthBucketsKey, periodID: periodID(now, component: .month), bucketCount: daysInCurrentMonth(now))
-        resetPeriod(idKey: yearIDKey, valueKey: usedYearKey, bucketKey: yearBucketsKey, periodID: periodID(now, component: .year), bucketCount: 12)
-    }
-
-    private static func resetPeriod(idKey: String, valueKey: String, bucketKey: String? = nil, periodID: String, bucketCount: Int = 0) {
-        if UserDefaults.standard.string(forKey: idKey) != periodID {
-            UserDefaults.standard.set(periodID, forKey: idKey)
-            UserDefaults.standard.set(0, forKey: valueKey)
-            if let bucketKey {
-                UserDefaults.standard.set(Array(repeating: 0, count: bucketCount), forKey: bucketKey)
+        for (index, value) in weekBuckets.enumerated() where value > 0 {
+            if let date = calendar.date(byAdding: .day, value: index - weekBucketIndex(now), to: calendar.startOfDay(for: now)) {
+                ledger[dateID(date), default: 0] = max(ledger[dateID(date), default: 0], value)
             }
+        }
+
+        for (index, value) in monthBuckets.enumerated() where value > 0 {
+            var components = calendar.dateComponents([.year, .month], from: now)
+            components.day = index + 1
+            if let date = calendar.date(from: components) {
+                ledger[dateID(date), default: 0] = max(ledger[dateID(date), default: 0], value)
+            }
+        }
+
+        ledger[dateID(now), default: 0] = max(ledger[dateID(now), default: 0], todayTotal)
+        let missingTrackedTotal = max(0, periodTotal - ledger.values.reduce(0, +))
+        if missingTrackedTotal > 0,
+           let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)) {
+            ledger[dateID(yesterday), default: 0] += missingTrackedTotal
+        }
+        saveDailyLedger(ledger)
+    }
+
+    private static func repairLegacyYearSeededLedger() {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let firstDayOfMonth = calendar.date(
+            from: calendar.dateComponents([.year, .month], from: now)
+        ),
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now)) else {
+            return
+        }
+
+        let firstDayID = dateID(firstDayOfMonth)
+        let todayID = dateID(now)
+        let yesterdayID = dateID(yesterday)
+        guard firstDayID != todayID else { return }
+
+        var ledger = dailyLedger()
+        guard let legacyMonthValue = ledger[firstDayID], legacyMonthValue > 0 else { return }
+        ledger[firstDayID] = nil
+        ledger[yesterdayID, default: 0] += legacyMonthValue
+        saveDailyLedger(ledger)
+    }
+
+    private static func dailyLedger() -> [String: Int] {
+        (UserDefaults.standard.dictionary(forKey: dailyLedgerKey) as? [String: Int]) ?? [:]
+    }
+
+    private static func saveDailyLedger(_ ledger: [String: Int]) {
+        UserDefaults.standard.set(ledger, forKey: dailyLedgerKey)
+    }
+
+    private static func ledgerValue(for id: String) -> Int {
+        dailyLedger()[id] ?? 0
+    }
+
+    private static func pruneDailyLedger() {
+        let calendar = Calendar.current
+        guard let oldestKeptDate = calendar.date(byAdding: .year, value: -1, to: Date()) else { return }
+        let oldestKeptID = dateID(oldestKeptDate)
+        let pruned = dailyLedger().filter { $0.key >= oldestKeptID }
+        saveDailyLedger(pruned)
+    }
+
+    private static func weekBucketsFromLedger(_ date: Date = Date()) -> [Int] {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: date)
+        guard let monday = calendar.date(byAdding: .day, value: -weekBucketIndex(date), to: todayStart) else {
+            return Array(repeating: 0, count: 7)
+        }
+        let ledger = dailyLedger()
+        return (0..<7).map { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: monday) else { return 0 }
+            return ledger[dateID(day)] ?? 0
         }
     }
 
-    private static func buckets(forKey key: String, count: Int, fallbackTotalKey: String, fallbackIndex: Int) -> [Int] {
-        var values = UserDefaults.standard.array(forKey: key) as? [Int] ?? []
-        if values.count != count {
-            values = Array(values.prefix(count))
-            if values.count < count {
-                values.append(contentsOf: Array(repeating: 0, count: count - values.count))
-            }
-            UserDefaults.standard.set(values, forKey: key)
+    private static func monthBucketsFromLedger(_ date: Date = Date()) -> [Int] {
+        let calendar = Calendar.current
+        let days = daysInCurrentMonth(date)
+        let components = calendar.dateComponents([.year, .month], from: date)
+        let ledger = dailyLedger()
+        return (1...days).map { day in
+            var dayComponents = components
+            dayComponents.day = day
+            guard let bucketDate = calendar.date(from: dayComponents) else { return 0 }
+            return ledger[dateID(bucketDate)] ?? 0
         }
-
-        let total = fallbackTotalKey.isEmpty ? 0 : UserDefaults.standard.integer(forKey: fallbackTotalKey)
-        if total > 0, values.indices.contains(fallbackIndex) {
-            let bucketTotal = values.reduce(0, +)
-            if bucketTotal == 0 {
-                values[fallbackIndex] = total
-                UserDefaults.standard.set(values, forKey: key)
-            } else if bucketTotal < total {
-                values[fallbackIndex] += total - bucketTotal
-                UserDefaults.standard.set(values, forKey: key)
-            } else if bucketTotal > total {
-                values = Array(repeating: 0, count: count)
-                values[fallbackIndex] = total
-                UserDefaults.standard.set(values, forKey: key)
-            }
-        }
-        return values
     }
 
-    private static func addDrain(_ drop: Int, bucketKey: String, count: Int, index: Int) {
-        var values = buckets(forKey: bucketKey, count: count, fallbackTotalKey: "", fallbackIndex: 0)
-        guard values.indices.contains(index) else { return }
-        values[index] += drop
-        UserDefaults.standard.set(values, forKey: bucketKey)
+    private static func yearBucketsFromLedger(_ date: Date = Date()) -> [Int] {
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: date)
+        return dailyLedger().reduce(into: Array(repeating: 0, count: 12)) { buckets, entry in
+            guard let entryDate = dateFormatter.date(from: entry.key),
+                  calendar.component(.year, from: entryDate) == currentYear else {
+                return
+            }
+            let month = calendar.component(.month, from: entryDate) - 1
+            guard buckets.indices.contains(month) else { return }
+            buckets[month] += entry.value
+        }
     }
 
     private static func weekBucketIndex(_ date: Date = Date()) -> Int {
@@ -176,6 +258,18 @@ enum BatteryUsageTracker {
     private static func daysInCurrentMonth(_ date: Date = Date()) -> Int {
         Calendar.current.range(of: .day, in: .month, for: date)?.count ?? 31
     }
+
+    private static func dateID(_ date: Date = Date()) -> String {
+        dateFormatter.string(from: date)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 
     private static func readBattery() -> Reading? {
         let output = run("/usr/bin/pmset", arguments: ["-g", "batt"])

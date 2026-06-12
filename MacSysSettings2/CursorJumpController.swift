@@ -30,6 +30,7 @@ final class CursorJumpController: ObservableObject {
     private var shortcut = CursorJumpStore.currentShortcut()
     private var locatorShortcut = CursorJumpStore.currentLocatorShortcut()
     private var selectedMonitorNumber: Int?
+    private var isCursorModeOpen = false
 
     func start() {
         observeChanges()
@@ -144,7 +145,9 @@ final class CursorJumpController: ObservableObject {
         guard shouldUseHardwareF2Fallback else { return }
 
         let systemDefinedEventType = 14
-        let mask = (1 << CGEventType.keyDown.rawValue) | (1 << systemDefinedEventType)
+        let mask = (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << systemDefinedEventType)
         let selfPointer = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -199,15 +202,29 @@ final class CursorJumpController: ObservableObject {
     }
 
     private func handleFallbackEvent(type: CGEventType, event: CGEvent) -> Bool {
+        guard CursorJumpStore.isEnabled else { return false }
+
+        if type == .keyDown, isCursorClickEvent(event, requiresShift: true) {
+            clickCurrentCursor(button: .right)
+            log("Option-Shift-Z right clicked current cursor")
+            return true
+        }
+
+        if type == .keyDown, isCursorClickEvent(event, requiresShift: false) {
+            clickCurrentCursor(button: .left)
+            log("Option-Z left clicked current cursor")
+            return true
+        }
+
         guard shouldUseHardwareF2Fallback else { return false }
-        guard event.flags.contains(.maskCommand) else { return false }
         guard Date().timeIntervalSince(lastEventTapFire) > 0.35 else { return true }
 
         let shouldFire: Bool
         if type == .keyDown {
-            shouldFire = event.getIntegerValueField(.keyboardEventKeycode) == kVK_F2
+            shouldFire = event.flags.contains(.maskCommand)
+                && event.getIntegerValueField(.keyboardEventKeycode) == kVK_F2
         } else if type.rawValue == 14, let nsEvent = NSEvent(cgEvent: event) {
-            shouldFire = isBrightnessUpKeyDown(nsEvent)
+            shouldFire = nsEvent.modifierFlags.contains(.command) && isBrightnessUpKeyDown(nsEvent)
         } else {
             shouldFire = false
         }
@@ -219,6 +236,34 @@ final class CursorJumpController: ObservableObject {
         }
         log("Command-F2 hardware fallback fired")
         return true
+    }
+
+    private func isCursorClickEvent(_ event: CGEvent, requiresShift: Bool) -> Bool {
+        let flags = event.flags
+        return event.getIntegerValueField(.keyboardEventKeycode) == kVK_ANSI_Z
+            && flags.contains(.maskAlternate)
+            && flags.contains(.maskShift) == requiresShift
+            && !flags.contains(.maskCommand)
+            && !flags.contains(.maskControl)
+    }
+
+    private enum CursorClickButton {
+        case left
+        case right
+    }
+
+    private func clickCurrentCursor(button: CursorClickButton) {
+        guard let event = CGEvent(source: nil) else { return }
+        let location = event.location
+        let source = CGEventSource(stateID: .hidSystemState)
+        let mouseButton: CGMouseButton = button == .left ? .left : .right
+        let downType: CGEventType = button == .left ? .leftMouseDown : .rightMouseDown
+        let upType: CGEventType = button == .left ? .leftMouseUp : .rightMouseUp
+
+        CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: location, mouseButton: mouseButton)?.post(tap: .cghidEventTap)
+        usleep(35_000)
+        CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: location, mouseButton: mouseButton)?.post(tap: .cghidEventTap)
+        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
     }
 
     private func isBrightnessUpKeyDown(_ event: NSEvent) -> Bool {
@@ -287,9 +332,16 @@ final class CursorJumpController: ObservableObject {
         selectedMonitorNumber = nil
         presenter.show(step: .monitor) { [weak self] digit in
             self?.handleMonitorDigit(digit)
+        } onShortcutKey: { [weak self] key in
+            self?.handleMonitorShortcutKey(key) ?? false
+        } onMove: { [weak self] delta in
+            self?.moveCursor(by: delta)
+        } onCommit: { [weak self] in
+            self?.clickAndExit()
         } onCancel: { [weak self] in
             self?.cancel()
         }
+        isCursorModeOpen = true
     }
 
     private func showCursorLocator() {
@@ -303,6 +355,86 @@ final class CursorJumpController: ObservableObject {
         selectedMonitorNumber = digit
         presenter.show(step: .point(monitorNumber: digit)) { [weak self] pointDigit in
             self?.handlePointDigit(pointDigit)
+        } onShortcutKey: { [weak self] key in
+            self?.handlePointShortcutKey(key) ?? false
+        } onMove: { [weak self] delta in
+            self?.moveCursor(by: delta)
+        } onCommit: { [weak self] in
+            self?.clickAndExit()
+        } onCancel: { [weak self] in
+            self?.cancel()
+        }
+    }
+
+    private func handleMonitorShortcutKey(_ key: String) -> Bool {
+        if let pointDigit = pointDigit(for: key, monitorNumber: 1) {
+            selectedMonitorNumber = 1
+            handlePointDigit(pointDigit)
+            showNudgeModeForSelectedMonitor()
+            return true
+        }
+
+        if let pointDigit = pointDigit(for: key, monitorNumber: 2) {
+            selectedMonitorNumber = 2
+            handlePointDigit(pointDigit)
+            showNudgeModeForSelectedMonitor()
+            return true
+        }
+
+        return false
+    }
+
+    private func handlePointShortcutKey(_ key: String) -> Bool {
+        guard let selectedMonitorNumber,
+              let pointDigit = pointDigit(for: key, monitorNumber: selectedMonitorNumber) else {
+            return false
+        }
+
+        handlePointDigit(pointDigit)
+        return true
+    }
+
+    private func pointDigit(for key: String, monitorNumber: Int) -> Int? {
+        if monitorNumber == 2 {
+            return [
+                "u": 1, "i": 2, "o": 3,
+                "j": 4, "k": 5, "l": 6,
+                "n": 7, "m": 8, ",": 9
+            ][key]
+        }
+
+        return [
+            "q": 1, "w": 2, "e": 3,
+            "a": 4, "s": 5, "d": 6,
+            "z": 7, "x": 8, "c": 9
+        ][key]
+    }
+
+    private func showPointPickerForSelectedMonitor() {
+        guard let selectedMonitorNumber else { return }
+        presenter.show(step: .point(monitorNumber: selectedMonitorNumber)) { [weak self] pointDigit in
+            self?.handlePointDigit(pointDigit)
+        } onShortcutKey: { [weak self] key in
+            self?.handlePointShortcutKey(key) ?? false
+        } onMove: { [weak self] delta in
+            self?.moveCursor(by: delta)
+        } onCommit: { [weak self] in
+            self?.clickAndExit()
+        } onCancel: { [weak self] in
+            self?.cancel()
+        }
+    }
+
+    private func showNudgeModeForSelectedMonitor() {
+        guard let selectedMonitorNumber else { return }
+        presenter.show(step: .nudge(monitorNumber: selectedMonitorNumber)) { [weak self] pointDigit in
+            self?.handlePointDigit(pointDigit)
+        } onShortcutKey: { [weak self] key in
+            self?.handlePointShortcutKey(key) ?? false
+        } onMove: { [weak self] delta in
+            self?.moveCursor(by: delta)
+        } onCommit: { [weak self] in
+            self?.clickAndExit()
         } onCancel: { [weak self] in
             self?.cancel()
         }
@@ -325,9 +457,24 @@ final class CursorJumpController: ObservableObject {
         }
         lastStatus = "Cursor jumped to monitor \(monitorNumber), point \(digit)."
         log("jumped to monitor \(monitorNumber), point \(digit), \(Int(point.x)),\(Int(point.y))")
-        presenter.hide()
-        selectedMonitorNumber = nil
+        focusWindowUnderCursor()
         showLocatorAfterJumpIfNeeded()
+    }
+
+    private func moveCursor(by delta: CGSize) {
+        guard let event = CGEvent(source: nil) else { return }
+        let current = event.location
+        let target = CGPoint(x: current.x + delta.width, y: current.y + delta.height)
+        CGWarpMouseCursorPosition(target)
+        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
+        lastStatus = "Cursor moved."
+        log("cursor moved by \(Int(delta.width)),\(Int(delta.height))")
+        focusWindowUnderCursor()
+    }
+
+    private func clickAndExit() {
+        clickCurrentCursor(button: .left)
+        cancel()
     }
 
     private func showLocatorAfterJumpIfNeeded() {
@@ -340,7 +487,174 @@ final class CursorJumpController: ObservableObject {
 
     private func cancel() {
         selectedMonitorNumber = nil
+        isCursorModeOpen = false
         presenter.hide()
+    }
+
+    private func focusWindowUnderCursor() {
+        guard let event = CGEvent(source: nil),
+              let target = cursorFocusTarget(at: event.location),
+              let app = NSWorkspace.shared.runningApplications.first(where: {
+                  $0.processIdentifier == target.processIdentifier && !$0.isTerminated
+              }) else {
+            return
+        }
+
+        let appElement = AXUIElementCreateApplication(target.processIdentifier)
+        let window = target.window ?? matchingWindow(for: appElement, frame: target.frame)
+        guard let window else { return }
+
+        _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        _ = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
+        setBool(true, attribute: kAXMainAttribute, on: window)
+        setBool(true, attribute: kAXFocusedAttribute, on: window)
+        app.activate(options: [.activateAllWindows])
+        log("focused window under cursor without click")
+    }
+
+    private func cursorFocusTarget(at mouseLocation: CGPoint) -> CursorFocusTarget? {
+        if let accessibilityTarget = accessibilityWindowUnderCursor(mouseLocation) {
+            return accessibilityTarget
+        }
+
+        return visibleWindowUnderCursor(mouseLocation)
+    }
+
+    private func accessibilityWindowUnderCursor(_ mouseLocation: CGPoint) -> CursorFocusTarget? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var element: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(systemWide, Float(mouseLocation.x), Float(mouseLocation.y), &element) == .success,
+              let element,
+              let window = containingWindow(for: element) else {
+            return nil
+        }
+
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(window, &pid) == .success,
+              pid > 0,
+              pid != getpid(),
+              let position = windowPoint(window, attribute: kAXPositionAttribute),
+              let size = windowSize(window),
+              size.width >= 80,
+              size.height >= 60 else {
+            return nil
+        }
+
+        return CursorFocusTarget(processIdentifier: pid, frame: CGRect(origin: position, size: size), window: window)
+    }
+
+    private func visibleWindowUnderCursor(_ mouseLocation: CGPoint) -> CursorFocusTarget? {
+        guard let rawWindows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        return rawWindows.compactMap { info -> CursorFocusTarget? in
+            let layer = info[kCGWindowLayer as String] as? Int ?? 0
+            guard layer == 0 else { return nil }
+
+            let alpha = info[kCGWindowAlpha as String] as? Double ?? 1
+            guard alpha > 0 else { return nil }
+
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID != getpid(),
+                  let boundsDictionary = info[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: boundsDictionary),
+                  frame.width >= 80,
+                  frame.height >= 60,
+                  frame.contains(mouseLocation) else {
+                return nil
+            }
+
+            return CursorFocusTarget(processIdentifier: ownerPID, frame: frame, window: nil)
+        }.first
+    }
+
+    private func containingWindow(for element: AXUIElement) -> AXUIElement? {
+        var current: AXUIElement? = element
+
+        for _ in 0..<8 {
+            guard let candidate = current else { return nil }
+
+            if role(of: candidate) == kAXWindowRole as String {
+                return candidate
+            }
+
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(candidate, kAXParentAttribute as CFString, &parent) == .success,
+                  let parentElement = parent,
+                  CFGetTypeID(parentElement) == AXUIElementGetTypeID() else {
+                return nil
+            }
+
+            current = (parentElement as! AXUIElement)
+        }
+
+        return nil
+    }
+
+    private func matchingWindow(for appElement: AXUIElement, frame: CGRect) -> AXUIElement? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success,
+              let windows = value as? [AXUIElement] else {
+            return nil
+        }
+
+        return windows.first { candidate in
+            guard let position = windowPoint(candidate, attribute: kAXPositionAttribute),
+                  let size = windowSize(candidate) else { return false }
+            return framesAreClose(CGRect(origin: position, size: size), frame)
+        }
+    }
+
+    private func containingWindowPoint(_ window: AXUIElement) -> CGPoint? {
+        windowPoint(window, attribute: kAXPositionAttribute)
+    }
+
+    private func windowPoint(_ window: AXUIElement, attribute: String) -> CGPoint? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, attribute as CFString, &value) == .success,
+              let axValue = value,
+              CFGetTypeID(axValue) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        var point = CGPoint.zero
+        guard AXValueGetValue((axValue as! AXValue), .cgPoint, &point) else { return nil }
+        return point
+    }
+
+    private func windowSize(_ window: AXUIElement) -> CGSize? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &value) == .success,
+              let axValue = value,
+              CFGetTypeID(axValue) == AXValueGetTypeID() else {
+            return nil
+        }
+
+        var size = CGSize.zero
+        guard AXValueGetValue((axValue as! AXValue), .cgSize, &size) else { return nil }
+        return size
+    }
+
+    private func role(of element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value) == .success else {
+            return nil
+        }
+
+        return value as? String
+    }
+
+    private func setBool(_ bool: Bool, attribute: String, on element: AXUIElement) {
+        let value = bool as CFBoolean
+        _ = AXUIElementSetAttributeValue(element, attribute as CFString, value)
+    }
+
+    private func framesAreClose(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        abs(lhs.minX - rhs.minX) <= 10
+            && abs(lhs.minY - rhs.minY) <= 10
+            && abs(lhs.width - rhs.width) <= 20
+            && abs(lhs.height - rhs.height) <= 20
     }
 
     private func screen(forMonitorNumber monitorNumber: Int) -> CursorJumpScreen? {
@@ -450,4 +764,10 @@ private struct CursorJumpScreen {
     var bounds: CGRect {
         CGDisplayBounds(displayID)
     }
+}
+
+private struct CursorFocusTarget {
+    let processIdentifier: pid_t
+    let frame: CGRect
+    let window: AXUIElement?
 }

@@ -265,7 +265,7 @@ private struct SettingsSidebar: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 42)
+            .padding(.top, 16)
             .padding(.bottom, 10)
 
             ScrollView {
@@ -459,7 +459,6 @@ private struct SetupCostSettingsDetailView: View {
                         settingNames: [
                             "Mic device list",
                             "Set default mic",
-                            "Bluetooth mic prompt",
                             "Mic Wi-Fi warning"
                         ],
                         status: "Open",
@@ -473,9 +472,7 @@ private struct SetupCostSettingsDetailView: View {
                     SetupPermissionRow(
                         title: "Bluetooth",
                         settingNames: [
-                            "Bluetooth audio input prompt",
-                            "Bluetooth off during sleep",
-                            "Sound input overlay"
+                            "Bluetooth off during sleep"
                         ],
                         status: "Open",
                         isAllowed: nil,
@@ -770,7 +767,7 @@ private struct FavoritesSettingsDetailView: View {
 
                     FavoriteSystemSettingRow(
                         title: "Mic",
-                        subtitle: "Choose sound input and show the Bluetooth audio input prompt.",
+                        subtitle: "Choose sound input and manage microphone safety tools.",
                         value: "Open"
                     ) {
                         selection = .mic
@@ -2415,6 +2412,7 @@ private struct ScreenSettingsDetailView: View {
     @State private var browserTabSnapEnabled = BrowserTabSnapStore.isEnabled
     @State private var browserTabQuickPairEnabled = BrowserTabSnapStore.quickOppositeArrowEnabled
     @State private var browserMonitorMoveChoiceEnabled = BrowserMonitorMoveStore.isEnabled
+    @State private var browserMonitorMoveFastShortcutsEnabled = BrowserMonitorMoveStore.fastShortcutsEnabled
     @State private var monitorMoveShortcutEnabled = MonitorMoveShortcutStore.isEnabled
     @State private var monitorMoveOthersShortcutEnabled = MonitorMoveOthersShortcutStore.isEnabled
     @State private var desktopIconsShortcutEnabled = DesktopIconsShortcutStore.isEnabled
@@ -2470,6 +2468,22 @@ private struct ScreenSettingsDetailView: View {
                             .labelsHidden()
                             .onChange(of: browserMonitorMoveChoiceEnabled) { _, newValue in
                                 BrowserMonitorMoveStore.setEnabled(newValue)
+                            }
+                    }
+
+                    Divider()
+                        .padding(.leading, 10)
+
+                    SettingsToggleRow(
+                        title: "Fast browser tab/window move",
+                        subtitle: "Optional shortcut: press Control-Option-T to move only the active browser tab to the other monitor, or Control-Option-W to move the whole browser window. These shortcuts are fixed and not programmable."
+                    ) {
+                        Toggle("", isOn: $browserMonitorMoveFastShortcutsEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .disabled(!browserMonitorMoveChoiceEnabled)
+                            .onChange(of: browserMonitorMoveFastShortcutsEnabled) { _, newValue in
+                                BrowserMonitorMoveStore.setFastShortcutsEnabled(newValue)
                             }
                     }
                 }
@@ -3044,6 +3058,10 @@ private struct ScreenSettingsDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: PinWindowStore.didChangeNotification)) { _ in
             pinWindowEnabled = PinWindowStore.isEnabled
         }
+        .onReceive(NotificationCenter.default.publisher(for: BrowserMonitorMoveStore.didChangeNotification)) { _ in
+            browserMonitorMoveChoiceEnabled = BrowserMonitorMoveStore.isEnabled
+            browserMonitorMoveFastShortcutsEnabled = BrowserMonitorMoveStore.fastShortcutsEnabled
+        }
         .onAppear {
             shortcut = ScreenShortcut.current()
             spaceSwitchingEnabled = SpaceSwitchShortcutStore.isEnabled
@@ -3054,6 +3072,7 @@ private struct ScreenSettingsDetailView: View {
             browserTabSnapEnabled = BrowserTabSnapStore.isEnabled
             browserTabQuickPairEnabled = BrowserTabSnapStore.quickOppositeArrowEnabled
             browserMonitorMoveChoiceEnabled = BrowserMonitorMoveStore.isEnabled
+            browserMonitorMoveFastShortcutsEnabled = BrowserMonitorMoveStore.fastShortcutsEnabled
             monitorMoveShortcutEnabled = MonitorMoveShortcutStore.isEnabled
             monitorMoveOthersShortcutEnabled = MonitorMoveOthersShortcutStore.isEnabled
             desktopIconsShortcutEnabled = DesktopIconsShortcutStore.isEnabled
@@ -3312,7 +3331,6 @@ private struct WindowSwitcherSettingsDetailView: View {
 private struct MicSettingsDetailView: View {
     @State private var devices = AudioInputStore.inputDevices()
     @State private var defaultDevice = AudioInputStore.defaultInputDevice()
-    @State private var bluetoothPromptsEnabled = BluetoothAudioInputPromptStore.isEnabled
     @State private var bluetoothSleepEnabled = BluetoothSleepStore.isEnabled
     @State private var bluetoothSleepBatteryOnly = BluetoothSleepStore.onlyOnBattery
     @State private var bluetoothSleepStatus = BluetoothSleepStore.lastStatus
@@ -3323,26 +3341,6 @@ private struct MicSettingsDetailView: View {
 
     var body: some View {
         SettingsPage(title: "Mic", subtitle: "Keep your system input clean when Bluetooth headphones connect or speech starts offline.") {
-            SettingsSectionBlock(
-                title: "Bluetooth Audio Prompt",
-                subtitle: "Useful for AirPods and headphones that crush input quality when macOS chooses their mic."
-            ) {
-                SettingsGroup {
-                    SettingsToggleRow(
-                        title: "Ask when Bluetooth audio connects",
-                        subtitle: "When a new Bluetooth audio input appears, show a centered Sound input picker. Non-audio Bluetooth devices do not trigger this."
-                    ) {
-                        Toggle("", isOn: $bluetoothPromptsEnabled)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .onChange(of: bluetoothPromptsEnabled) { _, newValue in
-                                BluetoothAudioInputPromptStore.setEnabled(newValue)
-                            }
-                    }
-
-                }
-            }
-
             SettingsSectionBlock(
                 title: "Bluetooth Sleep",
                 subtitle: "Stops your sleeping Mac from stealing headphones or speakers. Warning: this turns all Bluetooth off during sleep, so Apple Watch unlock, Bluetooth keyboard or mouse wake, and Find My-style background behavior may not work while the Mac is asleep."
@@ -3431,7 +3429,6 @@ private struct MicSettingsDetailView: View {
                 StatusGrid(items: [
                     StatusItem(title: "Default Mic", value: defaultDevice?.name ?? "None", state: defaultDevice == nil ? .warning : .good),
                     StatusItem(title: "Inputs", value: "\(devices.count)", state: devices.isEmpty ? .warning : .good),
-                    StatusItem(title: "Bluetooth Prompt", value: bluetoothPromptsEnabled ? "On" : "Off", state: bluetoothPromptsEnabled ? .good : .warning),
                     StatusItem(title: "Sleep Bluetooth", value: bluetoothSleepEnabled ? bluetoothSleepStatus : "Off", state: bluetoothSleepEnabled ? .good : .warning),
                     StatusItem(title: "Wi-Fi Warning", value: networkWarningEnabled ? "On" : "Off", state: networkWarningEnabled ? .good : .warning),
                     StatusItem(title: "Mic Active", value: activeMicNames.isEmpty ? "No" : "Yes", state: activeMicNames.isEmpty ? .warning : .good),
@@ -3459,7 +3456,6 @@ private struct MicSettingsDetailView: View {
     private func refreshDevices() {
         devices = AudioInputStore.inputDevices()
         defaultDevice = AudioInputStore.defaultInputDevice()
-        bluetoothPromptsEnabled = BluetoothAudioInputPromptStore.isEnabled
         bluetoothSleepEnabled = BluetoothSleepStore.isEnabled
         bluetoothSleepBatteryOnly = BluetoothSleepStore.onlyOnBattery
         bluetoothSleepStatus = BluetoothSleepStore.lastStatus
@@ -3481,7 +3477,7 @@ private struct AgentSettingsDetailView: View {
                 SettingsGroup {
                     SettingsToggleRow(
                         title: "Back up mic sessions",
-                        subtitle: "When another app starts using the mic, Mac Sys Settings 2 records the same microphone input into a real Voice Backups folder, shows the newest three clips, and deletes older files directly."
+                        subtitle: "Starts a backup only when macOS reports a real microphone session, then keeps the newest three clips and deletes older files directly."
                     ) {
                         Toggle("", isOn: $voiceBackupEnabled)
                             .toggleStyle(.switch)
@@ -3923,14 +3919,45 @@ private struct SettingsTextFieldRow: View {
 }
 
 private enum SettingsColors {
-    static let contentBackground = Color(nsColor: .windowBackgroundColor)
-    static let sidebarBackground = Color(red: 0.935, green: 0.935, blue: 0.93)
-    static let sidebarSearch = Color.black.opacity(0.055)
-    static let sidebarSelection = Color.black.opacity(0.085)
-    static let sidebarPrimaryText = Color.black.opacity(0.84)
-    static let sidebarSecondaryText = Color.black.opacity(0.48)
-    static let groupFill = Color.black.opacity(0.035)
-    static let separator = Color.black.opacity(0.075)
+    static let contentBackground = adaptiveColor(
+        light: NSColor.windowBackgroundColor,
+        dark: NSColor(calibratedWhite: 0.105, alpha: 1)
+    )
+    static let sidebarBackground = adaptiveColor(
+        light: NSColor(calibratedRed: 0.935, green: 0.935, blue: 0.93, alpha: 1),
+        dark: NSColor(calibratedWhite: 0.015, alpha: 1)
+    )
+    static let sidebarSearch = adaptiveColor(
+        light: NSColor(calibratedWhite: 0, alpha: 0.055),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.105)
+    )
+    static let sidebarSelection = adaptiveColor(
+        light: NSColor(calibratedWhite: 0, alpha: 0.085),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.145)
+    )
+    static let sidebarPrimaryText = adaptiveColor(
+        light: NSColor(calibratedWhite: 0, alpha: 0.84),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.90)
+    )
+    static let sidebarSecondaryText = adaptiveColor(
+        light: NSColor(calibratedWhite: 0, alpha: 0.48),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.52)
+    )
+    static let groupFill = adaptiveColor(
+        light: NSColor(calibratedWhite: 0, alpha: 0.035),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.045)
+    )
+    static let separator = adaptiveColor(
+        light: NSColor(calibratedWhite: 0, alpha: 0.075),
+        dark: NSColor(calibratedWhite: 1, alpha: 0.09)
+    )
+
+    private static func adaptiveColor(light: NSColor, dark: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
+            return bestMatch == .darkAqua ? dark : light
+        })
+    }
 }
 
 private struct SettingsPage<Content: View>: View {
