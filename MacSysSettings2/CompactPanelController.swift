@@ -318,10 +318,9 @@ private struct CompactSettingsPanelView: View {
                         get: { LoginItemStore.isEnabled },
                         set: { _ = LoginItemStore.setEnabled($0) }
                     ))
-                    CompactToggleRow(title: "Hide Apple battery icon", subtitle: "Use only the Mac Sys Settings 2 battery tracker in the menu bar.", isOn: Binding(
-                        get: { BatteryMenuStore.hidesNativeBatteryIcon },
-                        set: { _ = BatteryMenuStore.setHidesNativeBatteryIcon($0) }
-                    ))
+                    CompactButtonRow(title: "Apple battery icon", subtitle: "Hidden so only our remaining and used-this-week tracker stays in the menu bar.", value: "Hidden") {
+                        BatteryMenuStore.applyNativeBatteryVisibility()
+                    }
                     CompactButtonRow(title: "Accessibility", subtitle: AXIsProcessTrusted() ? "Allowed" : "Needed for app/window control.", value: AXIsProcessTrusted() ? "Allowed" : "Open") {
                         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                             NSWorkspace.shared.open(url)
@@ -569,7 +568,7 @@ private struct CompactSectionTile: View {
             HStack {
                 Image(systemName: section.iconName)
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(isDark ? .white : Color.black.opacity(0.86))
                 Spacer()
             }
 

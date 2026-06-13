@@ -1920,7 +1920,6 @@ private struct AppSettingsDetailView: View {
     @State private var hiddenDockAppsStatus = DockHiddenAppsStore.statusText
     @State private var accessibilityTrusted = AXIsProcessTrusted()
     @State private var keyboardSafetyStatus = "Ready"
-    @State private var hideNativeBatteryIcon = BatteryMenuStore.hidesNativeBatteryIcon
 
     var body: some View {
         SettingsPage(title: "General", subtitle: "") {
@@ -1948,17 +1947,11 @@ private struct AppSettingsDetailView: View {
                 subtitle: ""
             ) {
                 SettingsGroup {
-                    SettingsToggleRow(
-                        title: "Hide Apple battery icon",
-                        subtitle: "Optional step for the Mac Sys Settings 2 battery menu: hide macOS's original battery icon so the menu bar only shows our remaining/used-today tracker."
-                    ) {
-                        Toggle("", isOn: $hideNativeBatteryIcon)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                            .onChange(of: hideNativeBatteryIcon) { _, newValue in
-                                hideNativeBatteryIcon = BatteryMenuStore.setHidesNativeBatteryIcon(newValue)
-                            }
-                    }
+                    SettingsInfoRow(
+                        title: "Apple battery icon",
+                        subtitle: "Hidden so the menu bar only shows our custom remaining and used-this-week tracker.",
+                        value: "Hidden"
+                    )
                 }
             }
 
@@ -2222,7 +2215,7 @@ private struct AppSettingsDetailView: View {
                     StatusItem(title: "Accessibility", value: accessibilityTrusted ? "Allowed" : "Needed", state: accessibilityTrusted ? .good : .warning),
                     StatusItem(title: "Minimize", value: minimizeEffect, state: fastMinimizeAnimation ? .good : .warning),
                     StatusItem(title: "Command-M", value: instantCommandM ? "Instant" : "System", state: instantCommandM ? .good : .warning),
-                    StatusItem(title: "Apple Battery", value: hideNativeBatteryIcon ? "Hidden" : "Shown", state: hideNativeBatteryIcon ? .good : .warning),
+                    StatusItem(title: "Apple Battery", value: "Hidden", state: .good),
                     StatusItem(title: "Dock Reveal", value: dockRevealStatus, state: instantDockReveal ? .good : .warning),
                     StatusItem(title: "Hidden Apps", value: hiddenDockAppsStatus, state: dimHiddenDockApps ? .good : .warning)
                 ])
@@ -2244,7 +2237,6 @@ private struct AppSettingsDetailView: View {
             dimHiddenDockApps = DockHiddenAppsStore.isEnabled
             hiddenDockAppsStatus = DockHiddenAppsStore.statusText
             accessibilityTrusted = AXIsProcessTrusted()
-            hideNativeBatteryIcon = BatteryMenuStore.hidesNativeBatteryIcon
         }
     }
 

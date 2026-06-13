@@ -26,9 +26,11 @@ enum BatteryUsageTracker {
     }
 
     private nonisolated static let schemaVersionKey = "battery.usage.schemaVersion"
-    private nonisolated static let currentSchemaVersion = 7
+    private nonisolated static let currentSchemaVersion = 8
 
     private nonisolated static let lastPercentKey = "battery.usage.lastPercent"
+    private nonisolated static let lastFullChargeEstimateTimestampKey = "battery.usage.fullChargeEstimate.lastTimestamp"
+    private nonisolated static let fullChargeEstimateRemainderMillisKey = "battery.usage.fullChargeEstimate.remainderMillis"
     private nonisolated static let usedTodayKey = "battery.usage.used.today"
     private nonisolated static let usedWeekKey = "battery.usage.used.week"
     private nonisolated static let usedMonthKey = "battery.usage.used.month"
@@ -53,6 +55,7 @@ enum BatteryUsageTracker {
         if reading.percent < lastPercent {
             addDrain(lastPercent - reading.percent)
         }
+        addFullChargeEstimateIfNeeded(reading)
 
         UserDefaults.standard.set(reading.percent, forKey: lastPercentKey)
 
@@ -86,10 +89,39 @@ enum BatteryUsageTracker {
 
     private static func addDrain(_ drop: Int) {
         guard drop > 0, drop < 80 else { return }
+        addUsagePercent(drop)
+    }
+
+    private static func addUsagePercent(_ percent: Int) {
+        guard percent > 0 else { return }
         var ledger = dailyLedger()
         let today = dateID()
-        ledger[today, default: 0] += drop
+        ledger[today, default: 0] += percent
         saveDailyLedger(ledger)
+    }
+
+    private static func addFullChargeEstimateIfNeeded(_ reading: Reading) {
+        let now = Date()
+        guard reading.isCharging, reading.percent >= 99 else {
+            UserDefaults.standard.set(now.timeIntervalSince1970, forKey: lastFullChargeEstimateTimestampKey)
+            UserDefaults.standard.set(0, forKey: fullChargeEstimateRemainderMillisKey)
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let lastTimestamp = defaults.object(forKey: lastFullChargeEstimateTimestampKey) as? Double
+        defaults.set(now.timeIntervalSince1970, forKey: lastFullChargeEstimateTimestampKey)
+        guard let lastTimestamp else { return }
+
+        let elapsedSeconds = max(0, min(now.timeIntervalSince1970 - lastTimestamp, 86_400))
+        guard elapsedSeconds > 0 else { return }
+
+        let estimatedMillis = Int((elapsedSeconds * 10_000 / 3_600).rounded(.down))
+        let totalMillis = defaults.integer(forKey: fullChargeEstimateRemainderMillisKey) + estimatedMillis
+        let wholePercent = totalMillis / 1_000
+        defaults.set(totalMillis % 1_000, forKey: fullChargeEstimateRemainderMillisKey)
+        guard wholePercent > 0 else { return }
+        addUsagePercent(wholePercent)
     }
 
     private static func migrateLegacyKeysIfNeeded() {
